@@ -5,6 +5,10 @@ on:
     tags:
       - "fork-v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.8.1)'
+        required: true
 
 permissions:
   contents: read
@@ -113,27 +117,52 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#fork-v}"
+            VERSION="${VERSION#v}"
+          fi
+          TAG="fork-v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: inputs.version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
       - name: Generate latest.json
         run: |
-          VERSION="${GITHUB_REF_NAME#fork-v}"
-          VERSION="${VERSION#v}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
           cat > latest.json << EOF
           {
             "version": "$VERSION",
-            "tag": "$GITHUB_REF_NAME",
+            "tag": "$TAG",
             "assets": {
-              "herdr-linux-x86_64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-linux-x86_64",
-              "herdr-linux-aarch64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-linux-aarch64",
-              "herdr-macos-x86_64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-macos-x86_64",
-              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-macos-aarch64"
+              "herdr-linux-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-x86_64",
+              "herdr-linux-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-aarch64",
+              "herdr-macos-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-x86_64",
+              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-aarch64"
             }
           }
           EOF
 
       - name: Generate release notes
         run: |
-          VERSION="${GITHUB_REF_NAME#fork-v}"
-          VERSION="${VERSION#v}"
+          VERSION="${{ steps.version.outputs.version }}"
           echo "## Fork Release v${VERSION}" > RELEASE_NOTES.md
           echo "" >> RELEASE_NOTES.md
           echo "Based on upstream herdr v${VERSION} with usage-monitor plugin and UI changes." >> RELEASE_NOTES.md
@@ -141,6 +170,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             herdr-linux-x86_64/herdr-linux-x86_64
             herdr-linux-aarch64/herdr-linux-aarch64
