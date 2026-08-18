@@ -143,6 +143,19 @@ jobs:
             git push origin "$TAG"
           fi
 
+      - name: Extract build metadata
+        id: meta
+        run: |
+          BASE_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PROTOCOL=$(grep 'pub const PROTOCOL_VERSION' src/protocol/wire.rs | grep -oP '\d+')
+          COMMIT=$(git rev-parse HEAD)
+          BUILD_ID="fork-$(date -u +%Y-%m-%d)-${COMMIT:0:12}"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "protocol=$PROTOCOL" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Generate latest.json
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -159,6 +172,39 @@ jobs:
             }
           }
           EOF
+
+      - name: Generate preview.json
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          BASE="${{ steps.meta.outputs.base_version }}"
+          BUILD_ID="${{ steps.meta.outputs.build_id }}"
+          COMMIT="${{ steps.meta.outputs.commit }}"
+          BUILT_AT="${{ steps.meta.outputs.built_at }}"
+          PROTOCOL="${{ steps.meta.outputs.protocol }}"
+          REPO="${{ github.repository }}"
+          SHA_LINUX_X86=$(sha256sum herdr-linux-x86_64/herdr-linux-x86_64 | cut -d' ' -f1)
+          SHA_LINUX_ARM=$(sha256sum herdr-linux-aarch64/herdr-linux-aarch64 | cut -d' ' -f1)
+          SHA_MACOS_X86=$(sha256sum herdr-macos-x86_64/herdr-macos-x86_64 | cut -d' ' -f1)
+          SHA_MACOS_ARM=$(sha256sum herdr-macos-aarch64/herdr-macos-aarch64 | cut -d' ' -f1)
+          cat > preview.json << EOFPREVIEW
+          {
+            "schema_version": 1,
+            "channel": "preview",
+            "base_version": "$BASE",
+            "build_id": "$BUILD_ID",
+            "commit": "$COMMIT",
+            "built_at": "$BUILT_AT",
+            "protocol": $PROTOCOL,
+            "notes": "Fork release $TAG",
+            "builds": {},
+            "assets": {
+              "linux-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-x86_64", "sha256": "$SHA_LINUX_X86" },
+              "linux-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-aarch64", "sha256": "$SHA_LINUX_ARM" },
+              "macos-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-x86_64", "sha256": "$SHA_MACOS_X86" },
+              "macos-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-aarch64", "sha256": "$SHA_MACOS_ARM" }
+            }
+          }
+          EOFPREVIEW
 
       - name: Generate release notes
         run: |
@@ -177,4 +223,5 @@ jobs:
             herdr-macos-x86_64/herdr-macos-x86_64
             herdr-macos-aarch64/herdr-macos-aarch64
             latest.json
+            preview.json
           body_path: RELEASE_NOTES.md
