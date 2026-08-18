@@ -805,6 +805,18 @@ pub enum ViewLayout {
     Mobile,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct UsageColumnEntry {
+    pub name: String,
+    pub session_percent: Option<u32>,
+    pub weekly_percent: Option<u32>,
+    pub weekly_fable_percent: Option<u32>,
+    pub reset_credits: Option<u32>,
+    pub session_resets: Option<String>,
+    pub weekly_resets: Option<String>,
+    pub updated_at: Option<String>,
+}
+
 pub struct ViewState {
     pub layout: ViewLayout,
     pub sidebar_rect: Rect,
@@ -820,6 +832,8 @@ pub struct ViewState {
     pub toast_hit_area: Rect,
     pub pane_infos: Vec<PaneInfo>,
     pub split_borders: Vec<SplitBorder>,
+    pub usage_column_rect: Rect,
+    pub usage_button_rect: Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1462,6 +1476,9 @@ pub struct AppState {
     pub sidebar_width_auto: bool,
     pub sidebar_collapsed: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
+    pub usage_column_collapsed: bool,
+    pub usage_column_data: Vec<UsageColumnEntry>,
+    pub usage_column_last_read: std::time::Instant,
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
     pub agent_panel_sort: AgentPanelSort,

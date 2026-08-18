@@ -320,11 +320,19 @@ impl ReleaseInfo {
 }
 
 fn fetch_update_manifest() -> Result<UpdateManifest, String> {
-    fetch_json_manifest(STABLE_UPDATE_MANIFEST_URL)
+    let url = env::var("HERDR_UPDATE_MANIFEST_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| STABLE_UPDATE_MANIFEST_URL.to_string());
+    fetch_json_manifest(&url)
 }
 
 fn fetch_preview_manifest() -> Result<PreviewManifest, String> {
-    fetch_json_manifest(PREVIEW_UPDATE_MANIFEST_URL)
+    let url = env::var("HERDR_PREVIEW_MANIFEST_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| PREVIEW_UPDATE_MANIFEST_URL.to_string());
+    fetch_json_manifest(&url)
 }
 
 fn fetch_json_manifest<T>(url: &str) -> Result<T, String>

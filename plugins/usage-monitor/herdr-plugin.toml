@@ -1,0 +1,27 @@
+id = "usage-monitor"
+name = "Usage Monitor"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Monitor token usage across coding agents"
+platforms = ["linux", "macos", "windows"]
+
+[[startup]]
+command = ["node", "usage-poller.js"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["node", "on-status-changed.js"]
+
+[[actions]]
+id = "show-usage"
+title = "Show Usage Dashboard"
+contexts = ["workspace"]
+command = ["node", "show-usage.js"]
+
+[[panes]]
+id = "dashboard"
+title = "Token Usage"
+placement = "popup"
+width = "60%"
+height = "50%"
+command = ["cmd", "/c", "Z:\\gits\\herdr\\plugins\\usage-monitor\\launch.bat"]

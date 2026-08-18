@@ -20,6 +20,7 @@ mod status;
 mod tab_surface;
 mod tabs;
 mod text;
+mod usage_column;
 mod widgets;
 
 use self::dialogs::{
@@ -237,11 +238,19 @@ fn compute_view_internal(
     let [sidebar_area, main_area] =
         Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
 
+    if !app.usage_column_collapsed && app.usage_column_last_read.elapsed().as_secs() >= 5 {
+        app.usage_column_data = usage_column::load_usage_data();
+        app.usage_column_last_read = std::time::Instant::now();
+    }
+    let usage_col_w: u16 = if app.usage_column_collapsed { 0 } else { 30 };
+    let [main_content_area, usage_column_rect] =
+        Layout::horizontal([Constraint::Min(1), Constraint::Length(usage_col_w)]).areas(main_area);
+
     let (tab_bar_rect, terminal_area) = app
         .active
         .and_then(|i| app.workspaces.get(i))
-        .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_area))
-        .unwrap_or((Rect::default(), main_area));
+        .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_content_area))
+        .unwrap_or((Rect::default(), main_content_area));
 
     if !app.sidebar_collapsed {
         app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
@@ -304,6 +313,17 @@ fn compute_view_internal(
         })
         .unwrap_or_default();
 
+    let usage_button_rect = if app.usage_column_collapsed && tab_bar_rect.width > 7 {
+        Rect::new(
+            tab_bar_rect.x + tab_bar_rect.width - 7,
+            tab_bar_rect.y,
+            7, // " Usage "
+            1,
+        )
+    } else {
+        Rect::default()
+    };
+
     app.view = crate::app::ViewState {
         layout: ViewLayout::Desktop,
         sidebar_rect: sidebar_area,
@@ -319,6 +339,8 @@ fn compute_view_internal(
         toast_hit_area,
         pane_infos,
         split_borders,
+        usage_column_rect,
+        usage_button_rect,
     };
     app.sync_copy_mode_search_geometry();
 }
@@ -382,6 +404,8 @@ fn compute_mobile_view(
         toast_hit_area,
         pane_infos,
         split_borders,
+        usage_column_rect: Rect::default(),
+        usage_button_rect: Rect::default(),
     };
     app.sync_copy_mode_search_geometry();
 }
@@ -414,6 +438,8 @@ pub fn render_with_runtime_registry(
     } else {
         render_empty(app, frame, terminal_area);
     }
+
+    usage_column::render_usage_column(app, frame, app.view.usage_column_rect);
 
     // Ambient notifications sit above panes, but below interactive overlays.
     render_notifications(app, frame, terminal_area);

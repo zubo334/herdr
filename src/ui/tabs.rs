@@ -443,6 +443,13 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         );
     }
 
+    if app.usage_column_collapsed && app.view.usage_button_rect.width > 0 {
+        frame.render_widget(
+            Paragraph::new(" Usage ").style(Style::default().fg(p.accent).bg(p.surface0)),
+            app.view.usage_button_rect,
+        );
+    }
+
     if first_visible_idx.is_some_and(|idx| idx > 0) {
         let x = if app.mouse_capture && app.view.tab_scroll_left_hit_area.width > 0 {
             app.view.tab_scroll_left_hit_area.x + app.view.tab_scroll_left_hit_area.width

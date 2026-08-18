@@ -149,6 +149,7 @@ fn collect_agent_panel_entries_with_runtimes(
     app.workspaces
         .iter()
         .enumerate()
+        .filter(|(_, ws)| !ws.custom_name.as_ref().is_some_and(|n| n.starts_with('_')))
         .flat_map(|(ws_idx, ws)| {
             let multi_tab = ws.tabs.len() > 1;
             let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
@@ -338,6 +339,9 @@ pub(crate) fn workspace_list_entries_expanded(app: &AppState) -> Vec<WorkspaceLi
 fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<WorkspaceListEntry> {
     let mut members_by_key = std::collections::HashMap::<String, Vec<usize>>::new();
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        if ws.custom_name.as_ref().is_some_and(|n| n.starts_with('_')) {
+            continue;
+        }
         if let Some(space) = ws.worktree_space() {
             members_by_key
                 .entry(space.key.clone())
@@ -374,6 +378,9 @@ fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<Wor
     let mut emitted_groups = std::collections::HashSet::<String>::new();
     let mut entries = Vec::new();
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        if ws.custom_name.as_ref().is_some_and(|n| n.starts_with('_')) {
+            continue;
+        }
         let Some(space) = ws
             .worktree_space()
             .filter(|space| grouped_keys.contains(&space.key))

@@ -1,0 +1,150 @@
+name: Fork Release
+
+on:
+  push:
+    tags:
+      - "fork-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RUST_TOOLCHAIN_VERSION: 1.96.1
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            name: herdr-linux-x86_64
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            name: herdr-linux-aarch64
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: herdr-macos-x86_64
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: herdr-macos-aarch64
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
+
+    runs-on: ${{ matrix.os }}
+    env:
+      LIBGHOSTTY_VT_OPTIMIZE: ${{ matrix.libghostty_vt_optimize }}
+      LIBGHOSTTY_VT_SIMD: ${{ matrix.libghostty_vt_simd }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        if: runner.os != 'macOS'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install Zig on macOS
+        if: runner.os == 'macOS'
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install zig@0.15
+          echo "$(brew --prefix zig@0.15)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build musl-tools gcc-aarch64-linux-gnu crossbuild-essential-arm64
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake ninja
+
+      - name: Set Linux aarch64 linker
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Remove Zig caches
+        run: rm -rf .zig-cache vendor/libghostty-vt/.zig-cache vendor/libghostty-vt/zig-out
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#fork-v}"
+          VERSION="${VERSION#v}"
+          cat > latest.json << EOF
+          {
+            "version": "$VERSION",
+            "tag": "$GITHUB_REF_NAME",
+            "assets": {
+              "herdr-linux-x86_64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-linux-x86_64",
+              "herdr-linux-aarch64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-linux-aarch64",
+              "herdr-macos-x86_64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-macos-x86_64",
+              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/herdr-macos-aarch64"
+            }
+          }
+          EOF
+
+      - name: Generate release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#fork-v}"
+          VERSION="${VERSION#v}"
+          echo "## Fork Release v${VERSION}" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "Based on upstream herdr v${VERSION} with usage-monitor plugin and UI changes." >> RELEASE_NOTES.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            herdr-linux-x86_64/herdr-linux-x86_64
+            herdr-linux-aarch64/herdr-linux-aarch64
+            herdr-macos-x86_64/herdr-macos-x86_64
+            herdr-macos-aarch64/herdr-macos-aarch64
+            latest.json
+          body_path: RELEASE_NOTES.md

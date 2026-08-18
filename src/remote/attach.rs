@@ -1503,7 +1503,11 @@ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
         let build_id = crate::build_info::build_id().ok_or_else(|| {
             io::Error::other("preview client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
         })?;
-        let manifest_bytes = fetch_remote_manifest(PREVIEW_UPDATE_MANIFEST_URL)?;
+        let preview_url = std::env::var("HERDR_PREVIEW_MANIFEST_URL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| PREVIEW_UPDATE_MANIFEST_URL.to_string());
+        let manifest_bytes = fetch_remote_manifest(&preview_url)?;
         let manifest: RemotePreviewManifest =
             serde_json::from_slice(&manifest_bytes).map_err(|err| {
                 io::Error::other(format!("failed to parse preview manifest JSON: {err}"))
@@ -1522,7 +1526,11 @@ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
     }
 
     let current_version = current_version();
-    let manifest_bytes = fetch_remote_manifest(STABLE_UPDATE_MANIFEST_URL)?;
+    let stable_url = std::env::var("HERDR_UPDATE_MANIFEST_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| STABLE_UPDATE_MANIFEST_URL.to_string());
+    let manifest_bytes = fetch_remote_manifest(&stable_url)?;
     let manifest: RemoteUpdateManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|err| io::Error::other(format!("failed to parse update manifest JSON: {err}")))?;
     let release = manifest.release_for_version(&current_version).ok_or_else(|| {

@@ -1,0 +1,47 @@
+name: Fork Tag Sync
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-tag:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'sync: upstream')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract upstream tag from PR title
+        id: tag
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # PR title format: "sync: upstream <name> (<tag>)"
+          TAG=$(echo "$TITLE" | grep -oP '\(v[\d.]+\)' | tr -d '()')
+          if [ -z "$TAG" ]; then
+            TAG=$(echo "$TITLE" | grep -oP 'v[\d.]+')
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Extracted tag: $TAG"
+
+      - name: Create fork tag and trigger release
+        if: steps.tag.outputs.tag != ''
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          FORK_TAG="fork-${TAG}"
+          if git rev-parse "$FORK_TAG" >/dev/null 2>&1; then
+            echo "Tag $FORK_TAG already exists, skipping"
+            exit 0
+          fi
+          git tag "$FORK_TAG"
+          git push origin "$FORK_TAG"
+          echo "Created and pushed tag $FORK_TAG"
