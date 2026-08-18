@@ -634,7 +634,7 @@ impl App {
             sidebar_width_auto: false,
             sidebar_collapsed: config.ui.sidebar_start_collapsed,
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
-            usage_column_collapsed: false,
+            usage_column_collapsed: true,
             usage_column_data: Vec::new(),
             usage_column_last_read: std::time::Instant::now(),
             sidebar_section_split,
