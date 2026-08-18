@@ -806,6 +806,7 @@ pub enum ViewLayout {
 }
 
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct UsageColumnEntry {
     pub name: String,
     pub session_percent: Option<u32>,
@@ -1824,6 +1825,8 @@ impl AppState {
                 toast_hit_area: Rect::default(),
                 pane_infos: Vec::new(),
                 split_borders: Vec::new(),
+                usage_column_rect: Rect::default(),
+                usage_button_rect: Rect::default(),
             },
             drag: None,
             workspace_presses: std::collections::HashMap::new(),
@@ -1855,6 +1858,9 @@ impl AppState {
             sidebar_width_auto: false,
             sidebar_collapsed: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::Compact,
+            usage_column_collapsed: true,
+            usage_column_data: Vec::new(),
+            usage_column_last_read: std::time::Instant::now(),
             sidebar_section_split: 0.5,
             agent_panel_sort: AgentPanelSort::Spaces,
             status_indicators: crate::config::StatusIndicatorStyle::Dots,
