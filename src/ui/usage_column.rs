@@ -39,19 +39,46 @@ pub fn load_usage_data() -> Vec<UsageColumnEntry> {
         .iter()
         .map(|(name, v)| UsageColumnEntry {
             name: name.clone(),
-            session_percent: v.get("session_percent").and_then(|n| n.as_u64()).map(|n| n as u32),
-            weekly_percent: v.get("weekly_percent").and_then(|n| n.as_u64()).map(|n| n as u32),
-            weekly_fable_percent: v.get("weekly_fable_percent").and_then(|n| n.as_u64()).map(|n| n as u32),
-            reset_credits: v.get("reset_credits").and_then(|n| n.as_u64()).map(|n| n as u32),
-            session_resets: v.get("session_resets").and_then(|s| s.as_str()).map(String::from),
-            weekly_resets: v.get("weekly_resets").and_then(|s| s.as_str()).map(String::from),
-            updated_at: v.get("updated_at").and_then(|s| s.as_str()).map(String::from),
+            session_percent: v
+                .get("session_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            weekly_percent: v
+                .get("weekly_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            weekly_fable_percent: v
+                .get("weekly_fable_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            reset_credits: v
+                .get("reset_credits")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            session_resets: v
+                .get("session_resets")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+            weekly_resets: v
+                .get("weekly_resets")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+            updated_at: v
+                .get("updated_at")
+                .and_then(|s| s.as_str())
+                .map(String::from),
         })
         .collect()
 }
 
 fn percent_color(pct: u32) -> Color {
-    if pct >= 80 { Color::Red } else if pct >= 50 { Color::Yellow } else { Color::Green }
+    if pct >= 80 {
+        Color::Red
+    } else if pct >= 50 {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
 }
 
 fn bar(pct: u32, width: u16) -> String {
@@ -87,7 +114,9 @@ pub fn render_usage_column(app: &AppState, frame: &mut Frame, area: Rect) {
         for entry in entries {
             lines.push(Line::from(Span::styled(
                 entry.name.to_uppercase(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             )));
 
             if let Some(ref resets) = entry.session_resets {
@@ -131,7 +160,11 @@ pub fn render_usage_column(app: &AppState, frame: &mut Frame, area: Rect) {
                     Span::styled(" rs ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!("{credits} resets"),
-                        Style::default().fg(if credits > 0 { Color::Cyan } else { Color::DarkGray }),
+                        Style::default().fg(if credits > 0 {
+                            Color::Cyan
+                        } else {
+                            Color::DarkGray
+                        }),
                     ),
                 ]));
             }

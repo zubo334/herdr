@@ -523,7 +523,11 @@ impl AppState {
                 // Usage column title click → collapse
                 if !self.usage_column_collapsed {
                     let uc = self.view.usage_column_rect;
-                    if uc.width > 0 && mouse.column >= uc.x && mouse.column < uc.x + uc.width && mouse.row == uc.y {
+                    if uc.width > 0
+                        && mouse.column >= uc.x
+                        && mouse.column < uc.x + uc.width
+                        && mouse.row == uc.y
+                    {
                         self.usage_column_collapsed = true;
                         return None;
                     }
@@ -531,7 +535,12 @@ impl AppState {
                 // Usage button on tab bar → expand
                 if self.usage_column_collapsed {
                     let ub = self.view.usage_button_rect;
-                    if ub.width > 0 && mouse.column >= ub.x && mouse.column < ub.x + ub.width && mouse.row >= ub.y && mouse.row < ub.y + ub.height {
+                    if ub.width > 0
+                        && mouse.column >= ub.x
+                        && mouse.column < ub.x + ub.width
+                        && mouse.row >= ub.y
+                        && mouse.row < ub.y + ub.height
+                    {
                         self.usage_column_collapsed = false;
                         return None;
                     }
