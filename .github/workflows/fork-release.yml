@@ -147,7 +147,7 @@ jobs:
         id: meta
         run: |
           BASE_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          PROTOCOL=$(grep 'pub const PROTOCOL_VERSION' src/protocol/wire.rs | grep -oP '\d+')
+          PROTOCOL=$(grep 'pub const PROTOCOL_VERSION' src/protocol/wire.rs | sed 's/.*= \([0-9]*\);/\1/')
           COMMIT=$(git rev-parse HEAD)
           BUILD_ID="fork-$(date -u +%Y-%m-%d)-${COMMIT:0:12}"
           echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
