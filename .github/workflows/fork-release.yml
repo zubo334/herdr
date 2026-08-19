@@ -44,6 +44,11 @@ jobs:
             name: herdr-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: herdr-windows-x86_64.zip
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
 
     runs-on: ${{ matrix.os }}
     env:
@@ -90,14 +95,38 @@ jobs:
         with:
           key: release-${{ matrix.target }}
 
+      - name: Restore Zig build cache
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.15.2-${{ github.run_id }}
+          restore-keys: |
+            zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.15.2-
+
       - name: Remove Zig caches
+        if: runner.os != 'Windows'
         run: rm -rf .zig-cache vendor/libghostty-vt/.zig-cache vendor/libghostty-vt/zig-out
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Rename binary
+        if: runner.os != 'Windows'
         run: cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
+          $stage = Join-Path $env:RUNNER_TEMP "herdr-windows-x86_64"
+          .\scripts\package_windows_conpty.ps1 `
+            -HerdrExe target\${{ matrix.target }}\release\herdr.exe `
+            -PackagePath $package `
+            -StageDir $stage `
+            -OutputPath ${{ matrix.name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -168,7 +197,8 @@ jobs:
               "herdr-linux-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-x86_64",
               "herdr-linux-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-aarch64",
               "herdr-macos-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-x86_64",
-              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-aarch64"
+              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-aarch64",
+              "herdr-windows-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-windows-x86_64.zip"
             }
           }
           EOF
@@ -186,6 +216,7 @@ jobs:
           SHA_LINUX_ARM=$(sha256sum herdr-linux-aarch64/herdr-linux-aarch64 | cut -d' ' -f1)
           SHA_MACOS_X86=$(sha256sum herdr-macos-x86_64/herdr-macos-x86_64 | cut -d' ' -f1)
           SHA_MACOS_ARM=$(sha256sum herdr-macos-aarch64/herdr-macos-aarch64 | cut -d' ' -f1)
+          SHA_WINDOWS=$(sha256sum herdr-windows-x86_64.zip/herdr-windows-x86_64.zip | cut -d' ' -f1)
           cat > preview.json << EOFPREVIEW
           {
             "schema_version": 1,
@@ -201,7 +232,8 @@ jobs:
               "linux-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-x86_64", "sha256": "$SHA_LINUX_X86" },
               "linux-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-aarch64", "sha256": "$SHA_LINUX_ARM" },
               "macos-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-x86_64", "sha256": "$SHA_MACOS_X86" },
-              "macos-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-aarch64", "sha256": "$SHA_MACOS_ARM" }
+              "macos-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-aarch64", "sha256": "$SHA_MACOS_ARM" },
+              "windows-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-windows-x86_64.zip", "sha256": "$SHA_WINDOWS" }
             }
           }
           EOFPREVIEW
@@ -222,6 +254,7 @@ jobs:
             herdr-linux-aarch64/herdr-linux-aarch64
             herdr-macos-x86_64/herdr-macos-x86_64
             herdr-macos-aarch64/herdr-macos-aarch64
+            herdr-windows-x86_64.zip/herdr-windows-x86_64.zip
             latest.json
             preview.json
           body_path: RELEASE_NOTES.md
