@@ -50,7 +50,7 @@ impl ClientShellState {
                 }
                 if action == crate::input::KeybindAction::Help {
                     self.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
-                        query: String::new(),
+                        query: TextEditor::default(),
                         search_focused: false,
                         scroll: 0,
                     }));
@@ -107,21 +107,29 @@ impl ClientShellState {
                 }
                 if action == crate::input::KeybindAction::CloseWorkspace {
                     if let Some(workspace_id) = self.workspace_action_id() {
-                        if self.config.confirm_close {
-                            self.open_confirm_close_overlay(workspace_id);
-                        } else {
-                            self.push_endpoint_method(
-                                crate::api::schema::Method::WorkspaceClose(
-                                    crate::api::schema::WorkspaceCloseParams {
-                                        workspace_id,
-                                        close_group: true,
-                                    },
-                                ),
-                                outcome,
-                            );
-                        }
+                        self.request_workspace_close(workspace_id, None, outcome);
                     }
                     outcome.repaint = true;
+                    return;
+                }
+                if action == crate::input::KeybindAction::ClosePane {
+                    if let Some(pane_id) = self
+                        .snapshot
+                        .as_deref()
+                        .and_then(|snapshot| snapshot.focused_pane_id.clone())
+                    {
+                        self.request_pane_close(pane_id, outcome);
+                    }
+                    return;
+                }
+                if action == crate::input::KeybindAction::CloseTab {
+                    if let Some(tab_id) = self
+                        .snapshot
+                        .as_deref()
+                        .and_then(|snapshot| snapshot.focused_tab_id.clone())
+                    {
+                        self.request_tab_close(tab_id, outcome);
+                    }
                     return;
                 }
                 if action == crate::input::KeybindAction::NewTab && self.config.prompt_new_tab_name
@@ -141,6 +149,7 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::WorkspacePicker {
+                    self.pending_workspace_highlight = None;
                     self.mobile_switcher_scroll = 0;
                     self.reveal_mobile_workspace = false;
                     self.mode = ClientShellMode::Navigate;
@@ -192,9 +201,8 @@ impl ClientShellState {
                         .then(|| candidate.command_id.clone())
                 });
                 let Some(command_id) = command_id else {
-                    self.endpoint_error = Some(
-                        "custom command is not available on this endpoint; reload configuration"
-                            .to_owned(),
+                    self.set_endpoint_error(
+                        "custom command is not available on this endpoint; reload configuration",
                     );
                     outcome.repaint = true;
                     return;
@@ -270,7 +278,7 @@ impl ClientShellState {
             .as_ref()
             .and_then(|surface| surface.panes.iter().find(|pane| pane.pane_id == pane_id))
             .map(|pane| pane.content_revision)
-            // Read a manual mouse selection atomically from the live terminal. Output
+            // Read an explicit selection atomically from the live terminal. Output
             // between the displayed frame and this request must not reject the copy.
             .filter(|_| !live);
         let (anchor, cursor) = selection.ordered_cells();
@@ -350,6 +358,19 @@ impl ClientShellState {
         kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
+        let changes_focus = match &method {
+            crate::api::schema::Method::WorkspaceFocus(_)
+            | crate::api::schema::Method::TabFocus(_)
+            | crate::api::schema::Method::PaneFocus(_)
+            | crate::api::schema::Method::PaneFocusDirection(_) => true,
+            crate::api::schema::Method::WorkspaceCreate(params) => params.focus,
+            crate::api::schema::Method::TabCreate(params) => params.focus,
+            crate::api::schema::Method::PaneSplit(params) => params.focus,
+            _ => false,
+        };
+        if changes_focus {
+            outcome.repaint |= self.pending_workspace_highlight.take().is_some();
+        }
         if !self.endpoint_is_online(&self.active_endpoint_id) {
             let label = self.active_endpoint_label().to_owned();
             outcome.repaint |= self.receive_endpoint_unavailable(format!("{label} is not ready"));
@@ -428,6 +449,10 @@ impl ClientShellState {
         &mut self,
         target: ClientEndpointFocusTarget,
     ) -> Vec<ClientShellAction> {
+        #[cfg(windows)]
+        if !self.notification_target_is_current(&self.active_endpoint_id, &target) {
+            return Vec::new();
+        }
         let method = match target {
             ClientEndpointFocusTarget::Workspace(workspace_id) => {
                 crate::api::schema::Method::WorkspaceFocus(crate::api::schema::WorkspaceTarget {
@@ -438,6 +463,10 @@ impl ClientShellState {
                 crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id })
             }
             ClientEndpointFocusTarget::Pane(pane_id) => {
+                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
+            }
+            #[cfg(windows)]
+            ClientEndpointFocusTarget::Notification { pane_id, .. } => {
                 crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
             }
         };
@@ -484,6 +513,9 @@ impl ClientShellState {
         {
             return (false, Vec::new());
         }
+        if let PendingEndpointKind::PaneLinkResolve { target } = pending.kind {
+            return self.complete_link_hover(target, result);
+        }
         if result.is_ok() {
             let timeout_key = ClientEndpointNoticeKey {
                 boot_id: boot_id.to_owned(),
@@ -493,6 +525,13 @@ impl ClientShellState {
             self.endpoint_notice_seen.remove(&timeout_key);
         }
         if let Err(error) = &result {
+            if self
+                .pending_workspace_highlight
+                .as_ref()
+                .is_some_and(|pending| pending.request_id == request_id)
+            {
+                self.pending_workspace_highlight = None;
+            }
             let code = error.code.as_deref().unwrap_or("invalid_response");
             if !matches!(
                 code,
@@ -529,6 +568,7 @@ impl ClientShellState {
         }
         match pending.kind {
             PendingEndpointKind::Generic => {}
+            PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {
                     Ok(_) => (false, Vec::new()),
@@ -608,8 +648,7 @@ impl ClientShellState {
                         (false, Vec::new())
                     }
                     Ok(_) => {
-                        self.endpoint_error =
-                            Some("endpoint returned an unexpected selection result".to_owned());
+                        self.set_endpoint_error("endpoint returned an unexpected selection result");
                         (true, Vec::new())
                     }
                     Err(_) => (true, Vec::new()),
@@ -631,7 +670,8 @@ impl ClientShellState {
                     event.kind
                         == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
                 });
-                let replay = (self.mode == ClientShellMode::Terminal
+                let replay = (self.config.mouse_capture
+                    && self.mode == ClientShellMode::Terminal
                     && self.overlay.is_none()
                     && self
                         .hits
@@ -659,7 +699,7 @@ impl ClientShellState {
                     Ok(crate::api::schema::ResponseResult::PaneLinkActivated {
                         url: Some(url),
                         handled: false,
-                    }) if crate::app::actions::safe_web_url(&url).is_some() => {
+                    }) if crate::app::actions::safe_web_url(&url).is_some() && replay.is_some() => {
                         self.url_click_consumes_until_up = completed_before_release;
                         (false, vec![ClientShellAction::OpenSafeWebUrl(url)])
                     }
@@ -667,9 +707,12 @@ impl ClientShellState {
                         (false, replay_action(replay))
                     }
                     Ok(_) => {
-                        self.endpoint_error =
-                            Some("endpoint returned an unexpected link result".to_owned());
+                        self.set_endpoint_error("endpoint returned an unexpected link result");
                         (true, replay_action(replay))
+                    }
+                    Err(error) if error.code.as_deref() == Some("plugin_link_failed") => {
+                        self.url_click_consumes_until_up = completed_before_release;
+                        (true, Vec::new())
                     }
                     Err(error)
                         if matches!(
@@ -706,8 +749,9 @@ impl ClientShellState {
                     ),
                     Ok(crate::api::schema::ResponseResult::PaneCopyMotion { .. }) => (false, false),
                     Ok(_) => {
-                        self.endpoint_error =
-                            Some("endpoint returned an unexpected copy-motion result".to_owned());
+                        self.set_endpoint_error(
+                            "endpoint returned an unexpected copy-motion result",
+                        );
                         (true, false)
                     }
                     Err(_) => (true, false),
@@ -761,8 +805,9 @@ impl ClientShellState {
                     }
                     Ok(_) => {
                         self.cancel_deferred_copy_after_search(generation);
-                        self.endpoint_error =
-                            Some("endpoint returned an unexpected copy-search result".to_owned());
+                        self.set_endpoint_error(
+                            "endpoint returned an unexpected copy-search result",
+                        );
                         (true, false)
                     }
                     Err(_) => {
@@ -777,8 +822,9 @@ impl ClientShellState {
                 let repaint = match result {
                     Ok(crate::api::schema::ResponseResult::ConfigReload { .. }) => false,
                     Ok(_) => {
-                        self.endpoint_error =
-                            Some("endpoint returned an unexpected config reload result".to_owned());
+                        self.set_endpoint_error(
+                            "endpoint returned an unexpected config reload result",
+                        );
                         true
                     }
                     Err(_) => true,
@@ -1015,12 +1061,6 @@ impl ClientShellState {
                     env: Default::default(),
                 }))
             }
-            KeybindAction::CloseTab => Some(Method::TabClose(TabTarget {
-                tab_id: focused_tab?,
-            })),
-            KeybindAction::ClosePane => Some(Method::PaneClose(PaneTarget {
-                pane_id: focused_pane.clone()?,
-            })),
             KeybindAction::CyclePaneNext | KeybindAction::CyclePanePrevious => {
                 let focused_tab = focused_tab?;
                 let panes = snapshot
@@ -1059,6 +1099,9 @@ impl ClientShellState {
             KeybindAction::Zoom => Some(Method::PaneZoom(PaneZoomParams {
                 pane_id: focused_pane,
                 mode: PaneZoomMode::Toggle,
+            })),
+            KeybindAction::ClearPane => Some(Method::PaneClear(PaneTarget {
+                pane_id: focused_pane?,
             })),
             KeybindAction::EditScrollback => Some(Method::PaneEditScrollback(PaneTarget {
                 pane_id: focused_pane?,
