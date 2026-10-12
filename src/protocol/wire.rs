@@ -948,6 +948,27 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
+    #[serde(default)]
+    pub plugin_usage: Vec<PluginUsageEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginUsageEntry {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_percent: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekly_percent: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekly_fable_percent: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credits: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_resets: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekly_resets: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2859,6 +2880,7 @@ mod tests {
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
             }],
+            plugin_usage: Vec::new(),
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
         let (decoded, _): (ServerMessage, _) =

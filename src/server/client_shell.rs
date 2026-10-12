@@ -263,8 +263,56 @@ pub(super) fn snapshot_with_completions(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
+        plugin_usage: load_plugin_usage(),
     };
     (shell, completions)
+}
+
+fn load_plugin_usage() -> Vec<protocol::PluginUsageEntry> {
+    let path = crate::plugin_paths::plugin_state_dir("usage-monitor").join("account-usage.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Vec::new();
+    };
+    let Some(platforms) = json.get("platforms").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    platforms
+        .iter()
+        .map(|(name, v)| protocol::PluginUsageEntry {
+            name: name.clone(),
+            session_percent: v
+                .get("session_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            weekly_percent: v
+                .get("weekly_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            weekly_fable_percent: v
+                .get("weekly_fable_percent")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            reset_credits: v
+                .get("reset_credits")
+                .and_then(|n| n.as_u64())
+                .map(|n| n as u32),
+            session_resets: v
+                .get("session_resets")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+            weekly_resets: v
+                .get("weekly_resets")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+            updated_at: v
+                .get("updated_at")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+        })
+        .collect()
 }
 
 pub(super) struct RenderedPaneSurface {

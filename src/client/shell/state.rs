@@ -59,6 +59,7 @@ pub(super) struct ClientShellLayout {
     pub tab_bar: Rect,
     pub mobile_header: Rect,
     pub pane_surface: Rect,
+    pub usage_column: Rect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +139,7 @@ pub(super) struct ShellHitMap {
     pub(super) release_notes_scrollbar: Rect,
     pub(super) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) release_notes_max_scroll: usize,
+    pub(super) usage_column_title: Rect,
 }
 
 #[derive(Clone)]
@@ -871,6 +873,8 @@ pub(crate) struct ClientShellState {
     pub(super) popup_terminal_id: Option<String>,
     pub(super) sidebar_collapsed: bool,
     pub(super) sidebar_collapsed_manual: bool,
+    pub(super) usage_column_collapsed: bool,
+    pub(super) usage_column_collapsed_manual: bool,
     pub(super) sidebar_width: u16,
     pub(super) sidebar_width_manual: bool,
     pub(super) sidebar_section_split: f32,
@@ -1045,6 +1049,8 @@ impl ClientShellState {
             popup_terminal_id: None,
             sidebar_collapsed,
             sidebar_collapsed_manual: preferences.sidebar_collapsed.is_some(),
+            usage_column_collapsed: preferences.usage_column_collapsed.unwrap_or(true),
+            usage_column_collapsed_manual: preferences.usage_column_collapsed.is_some(),
             sidebar_width,
             sidebar_width_manual: preferences.sidebar_width.is_some(),
             sidebar_section_split,
@@ -1225,6 +1231,7 @@ impl ClientShellState {
             self.sidebar_collapsed,
             self.focused_tab_count(),
             self.sidebar_width,
+            self.usage_column_collapsed,
         )
     }
 

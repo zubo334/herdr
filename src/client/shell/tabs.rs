@@ -4,6 +4,8 @@ const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
 const MIN_TAB_STRIP_WIDTH: u16 =
     MIN_TAB_WIDTH + NEW_TAB_WIDTH + TAB_SCROLL_BUTTON_WIDTH.saturating_mul(2);
 
+const USAGE_BUTTON_WIDTH: u16 = 7;
+
 pub(crate) fn render_tab_bar(
     buffer: &mut Buffer,
     area: Rect,
@@ -12,6 +14,7 @@ pub(crate) fn render_tab_bar(
     tab_scroll: &mut usize,
     reveal_focused_tab: &mut bool,
     tab_drag_insert_index: Option<usize>,
+    usage_column_collapsed: bool,
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
@@ -28,7 +31,7 @@ pub(crate) fn render_tab_bar(
             display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
         })
         .collect::<Vec<_>>();
-    let content = tab_bar_content_area(snapshot, area);
+    let content = tab_bar_content_area(snapshot, area, usage_column_collapsed);
     let mouse_chrome = config.mouse_capture;
     let new_tab_width = if mouse_chrome { NEW_TAB_WIDTH } else { 0 };
     let desired_total = desired_widths
@@ -221,6 +224,26 @@ pub(crate) fn render_tab_bar(
         }
     }
     render_tab_bar_status(buffer, area, snapshot, palette);
+
+    if usage_column_collapsed {
+        let status_w = tab_bar_status_width(snapshot);
+        let status_reserved = if status_w > 0 { status_w + 1 } else { 0 };
+        let btn_x = area
+            .right()
+            .saturating_sub(status_reserved + USAGE_BUTTON_WIDTH);
+        if btn_x > content.right() {
+            let btn = Rect::new(btn_x, area.y, USAGE_BUTTON_WIDTH, 1);
+            put_text(
+                buffer,
+                btn.x,
+                btn.y,
+                btn.width,
+                " Usage ",
+                Style::default().fg(palette.overlay0).bg(palette.panel_bg),
+            );
+            hits.usage_column_title = btn;
+        }
+    }
 }
 
 pub(crate) fn tab_bar_status_width(snapshot: &ClientShellSnapshot) -> u16 {
@@ -244,12 +267,17 @@ fn tab_bar_status_area(snapshot: &ClientShellSnapshot, area: Rect) -> Option<Rec
         .then(|| Rect::new(area.right().saturating_sub(width), area.y, width, 1))
 }
 
-fn tab_bar_content_area(snapshot: &ClientShellSnapshot, area: Rect) -> Rect {
-    let reserved = tab_bar_status_area(snapshot, area)
+fn tab_bar_content_area(snapshot: &ClientShellSnapshot, area: Rect, usage_button: bool) -> Rect {
+    let status_reserved = tab_bar_status_area(snapshot, area)
         .map(|status| status.width.saturating_add(1))
         .unwrap_or(0);
+    let usage_reserved = if usage_button {
+        USAGE_BUTTON_WIDTH.saturating_add(1)
+    } else {
+        0
+    };
     Rect {
-        width: area.width.saturating_sub(reserved),
+        width: area.width.saturating_sub(status_reserved + usage_reserved),
         ..area
     }
 }

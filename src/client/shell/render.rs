@@ -248,6 +248,7 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) reveal_navigation_workspace: &'a mut bool,
     pub(super) dragged_workspace_id: Option<&'a str>,
     pub(super) workspace_drop_indicator_row: Option<u16>,
+    pub(super) usage_column_collapsed: bool,
 }
 
 pub(super) fn render_shell(
@@ -318,8 +319,12 @@ pub(super) fn render_shell(
             state.tab_scroll,
             state.reveal_focused_tab,
             state.tab_drag_insert_index,
+            state.usage_column_collapsed,
             &mut hits,
         );
+    }
+    if layout.usage_column.width > 0 {
+        render_usage_column(buffer, layout.usage_column, snapshot, config, &mut hits);
     }
     if !config.mouse_capture {
         hits.sidebar_divider = Rect::default();
@@ -374,4 +379,197 @@ pub(super) fn put_text(buffer: &mut Buffer, x: u16, y: u16, width: u16, text: &s
 
 pub(super) fn display_width(text: &str) -> u16 {
     UnicodeWidthStr::width(text).min(u16::MAX as usize) as u16
+}
+
+fn render_usage_column(
+    buffer: &mut Buffer,
+    area: Rect,
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+    hits: &mut ShellHitMap,
+) {
+    buffer.set_style(area, Style::default().bg(config.palette.panel_bg));
+    let sep_x = area.x;
+    for y in area.y..area.bottom() {
+        if let Some(cell) = buffer.cell_mut((sep_x, y)) {
+            cell.set_symbol("│");
+            cell.set_style(Style::default().fg(config.palette.surface_dim));
+        }
+    }
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(1),
+        area.height,
+    );
+    let title_area = Rect::new(inner.x, inner.y, inner.width, 1.min(inner.height));
+    put_text(
+        buffer,
+        title_area.x,
+        title_area.y,
+        title_area.width,
+        " Usage",
+        Style::default()
+            .fg(config.palette.text)
+            .add_modifier(Modifier::BOLD),
+    );
+    hits.usage_column_title = title_area;
+
+    let entries = &snapshot.plugin_usage;
+    let mut row = inner.y + 1;
+    let bar_width = inner.width.saturating_sub(8);
+
+    if entries.is_empty() {
+        if row < inner.bottom() {
+            put_text(
+                buffer,
+                inner.x,
+                row,
+                inner.width,
+                " No data",
+                Style::default().fg(config.palette.overlay0),
+            );
+        }
+        return;
+    }
+
+    for entry in entries {
+        if row >= inner.bottom() {
+            break;
+        }
+        put_text(
+            buffer,
+            inner.x,
+            row,
+            inner.width,
+            &format!(" {}", entry.name.to_uppercase()),
+            Style::default()
+                .fg(config.palette.text)
+                .add_modifier(Modifier::BOLD),
+        );
+        row += 1;
+
+        if let Some(ref resets) = entry.session_resets {
+            if row < inner.bottom() {
+                put_text(
+                    buffer,
+                    inner.x,
+                    row,
+                    inner.width,
+                    &format!("  resets {resets}"),
+                    Style::default().fg(config.palette.overlay0),
+                );
+                row += 1;
+            }
+        }
+
+        for (label, pct) in [
+            (" 5h", entry.session_percent),
+            (" wk", entry.weekly_percent),
+            (" fb", entry.weekly_fable_percent),
+        ] {
+            let Some(pct) = pct else { continue };
+            if pct == 0 && label == " fb" {
+                continue;
+            }
+            if row >= inner.bottom() {
+                break;
+            }
+            let color = usage_percent_color(pct);
+            let filled = ((pct as f32 / 100.0) * bar_width as f32).round() as usize;
+            let empty = (bar_width as usize).saturating_sub(filled);
+            let bar_str = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+            put_text(
+                buffer,
+                inner.x,
+                row,
+                4,
+                label,
+                Style::default().fg(config.palette.overlay0),
+            );
+            put_text(
+                buffer,
+                inner.x + 4,
+                row,
+                bar_width,
+                &bar_str,
+                Style::default().fg(color),
+            );
+            let pct_str = format!(" {pct}%");
+            put_text(
+                buffer,
+                inner.x + 4 + bar_width,
+                row,
+                4,
+                &pct_str,
+                Style::default().fg(color),
+            );
+            row += 1;
+        }
+
+        if let Some(credits) = entry.reset_credits {
+            if row < inner.bottom() {
+                let color = if credits > 0 {
+                    config.palette.text
+                } else {
+                    config.palette.overlay0
+                };
+                put_text(
+                    buffer,
+                    inner.x,
+                    row,
+                    inner.width,
+                    &format!("  rs {credits} resets"),
+                    Style::default().fg(color),
+                );
+                row += 1;
+            }
+        }
+
+        if let Some(ref ts) = entry.updated_at {
+            if row < inner.bottom() {
+                let display = usage_time_display(ts);
+                put_text(
+                    buffer,
+                    inner.x,
+                    row,
+                    inner.width,
+                    &format!("  Updated: {display}"),
+                    Style::default().fg(config.palette.overlay0),
+                );
+                row += 1;
+            }
+        }
+
+        if row < inner.bottom() {
+            row += 1;
+        }
+    }
+}
+
+fn usage_percent_color(pct: u32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    if pct >= 80 {
+        Color::Red
+    } else if pct >= 50 {
+        Color::Yellow
+    } else {
+        Color::Green
+    }
+}
+
+fn usage_time_display(iso: &str) -> String {
+    let trimmed = iso.trim_end_matches('Z');
+    let without_frac = trimmed.split('.').next().unwrap_or(trimmed);
+    let time_part = without_frac.split('T').nth(1).unwrap_or(without_frac);
+    let parts: Vec<&str> = time_part.split(':').collect();
+    if parts.len() < 2 {
+        return time_part.to_string();
+    }
+    let utc_h: i32 = parts[0].parse().unwrap_or(0);
+    let utc_m: i32 = parts[1].parse().unwrap_or(0);
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let h = ((utc_h + offset.whole_hours() as i32) % 24 + 24) % 24;
+    let m = ((utc_m + (offset.minutes_past_hour() as i32)) % 60 + 60) % 60;
+    format!("{h:02}:{m:02}")
 }

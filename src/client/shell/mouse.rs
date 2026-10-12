@@ -1950,6 +1950,15 @@ impl ClientShellState {
                     self.persist_chrome_preferences(outcome);
                     return;
                 }
+                if super::contains(self.hits.usage_column_title, point) {
+                    self.usage_column_collapsed = !self.usage_column_collapsed;
+                    self.usage_column_collapsed_manual = true;
+                    self.invalidate_pane_surface();
+                    outcome.repaint = true;
+                    outcome.resize = true;
+                    self.persist_chrome_preferences(outcome);
+                    return;
+                }
                 if super::contains(self.hits.sidebar_divider, point) {
                     let now = std::time::Instant::now();
                     let double_click = self.last_sidebar_divider_click.is_some_and(|last| {
