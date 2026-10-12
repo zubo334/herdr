@@ -68,13 +68,13 @@ jobs:
         if: runner.os != 'macOS'
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Install Zig on macOS
         if: runner.os == 'macOS'
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install zig@0.15
-          echo "$(brew --prefix zig@0.15)/bin" >> "$GITHUB_PATH"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install zig@0.16
+          echo "$(brew --prefix zig@0.16)/bin" >> "$GITHUB_PATH"
 
       - name: Install Linux build tools
         if: runner.os == 'Linux'
@@ -100,9 +100,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .zig-cache
-          key: zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.15.2-${{ github.run_id }}
+          key: zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.16.0-${{ github.run_id }}
           restore-keys: |
-            zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.15.2-
+            zig-build-v1-${{ runner.os }}-${{ runner.arch }}-0.16.0-
 
       - name: Remove Zig caches
         if: runner.os != 'Windows'
