@@ -159,8 +159,9 @@ fn print_json(snapshot: &herdr_usage::UsageSnapshot) -> io::Result<()> {
 }
 
 fn dashboard_lines(snapshot: &herdr_usage::UsageSnapshot, width: u16) -> Vec<String> {
-    use crate::usage::presentation::{bar, details, local_time, percent};
+    use crate::usage::presentation::{details, local_time, UsageRowLayout};
     let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let quota_layout = UsageRowLayout::new(width.into(), 2, 24, 40);
     let mut lines = vec![
         "Account Usage".into(),
         "q / Esc closes · ↑ / ↓ scrolls · cached data".into(),
@@ -172,12 +173,7 @@ fn dashboard_lines(snapshot: &herdr_usage::UsageSnapshot, width: u16) -> Vec<Str
     for usage in snapshot.platforms.values() {
         lines.push(usage.display_name.clone());
         for window in &usage.windows {
-            let label = &window.label;
-            lines.push(format!(
-                "  {label}  {} {}",
-                bar(window, width.saturating_sub(35).clamp(5, 40).into()),
-                percent(window.used_percent)
-            ));
+            lines.push(quota_layout.format(window));
             if let Some(reset) = &window.resets_at {
                 lines.push(format!("    Resets {}", local_time(reset, offset)));
             }
@@ -297,6 +293,33 @@ fn scroll_limit(paragraph: &ratatui::widgets::Paragraph<'_>, width: u16, height:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn popup_bars_align_across_labels_and_percent_widths() {
+        use unicode_width::UnicodeWidthStr;
+        let mut snapshot = herdr_usage::UsageSnapshot::default();
+        for (id, label, value) in [
+            (herdr_usage::ProviderId::Codex, "5h", 9.0),
+            (herdr_usage::ProviderId::Claude, "Weekly", 12.5),
+            (herdr_usage::ProviderId::Zai, "週次 👩‍💻", 100.0),
+        ] {
+            let mut provider = herdr_usage::ProviderUsage::new(id);
+            provider
+                .windows
+                .push(herdr_usage::Window::new("window", label, value));
+            snapshot.platforms.insert(id.as_str().into(), provider);
+        }
+        let ranges: Vec<_> = dashboard_lines(&snapshot, 80)
+            .into_iter()
+            .filter_map(|line| {
+                let start = line.find(['█', '░'])?;
+                let prefix = UnicodeWidthStr::width(&line[..start]);
+                let count = line.chars().filter(|ch| matches!(ch, '█' | '░')).count();
+                Some((prefix, count))
+            })
+            .collect();
+        assert_eq!(ranges.len(), 3);
+        assert!(ranges.windows(2).all(|pair| pair[0] == pair[1]));
+    }
     #[test]
     fn narrow_dashboard_can_scroll_to_the_last_provider_after_wrapped_errors() {
         use ratatui::{

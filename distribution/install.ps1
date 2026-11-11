@@ -676,6 +676,9 @@ function Resolve-HerdrVersion {
         if ([string]::IsNullOrWhiteSpace([string]$Manifest.base_version) -or [string]::IsNullOrWhiteSpace([string]$Manifest.build_id)) {
             throw "Preview manifest is missing base_version or build_id."
         }
+        if (([string]$Manifest.build_id).StartsWith("fork-v", [System.StringComparison]::Ordinal)) {
+            return [string]$Manifest.build_id
+        }
         return "$($Manifest.base_version)-preview.$($Manifest.build_id)"
     }
 

@@ -103,6 +103,63 @@ fn malformed_optional_usage_does_not_reject_the_endpoint_or_break_legacy_fallbac
 }
 
 #[test]
+fn all_provider_bars_share_the_same_cell_columns() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.usage_column_collapsed = false;
+    let id = ClientEndpointId::Local;
+    state.set_endpoint_snapshot_for_generation(&id, 1, Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let mut value = projection(1, "unused");
+    value.usage.platforms.clear();
+    for (provider, labels, percents) in [
+        (
+            herdr_usage::ProviderId::Codex,
+            ["5h", "Weekly"],
+            [9.0, 12.5],
+        ),
+        (
+            herdr_usage::ProviderId::Claude,
+            ["週次", "e\u{301}"],
+            [100.0, 125.5],
+        ),
+        (
+            herdr_usage::ProviderId::Zai,
+            ["👩‍💻 quota", "月次"],
+            [0.0, 50.5],
+        ),
+    ] {
+        let mut usage = herdr_usage::ProviderUsage::new(provider);
+        usage.windows = labels
+            .into_iter()
+            .zip(percents)
+            .map(|(label, percent)| herdr_usage::Window::new(label, label, percent))
+            .collect();
+        value
+            .usage
+            .platforms
+            .insert(provider.as_str().into(), usage);
+    }
+    state.set_endpoint_usage(&id, 1, value);
+    let frame = state.compose(120, 40).unwrap();
+    let area = state.hits.usage_column_title;
+    let ranges: Vec<_> = frame
+        .cells
+        .chunks(frame.width as usize)
+        .filter_map(|row| {
+            let bars: Vec<_> = (area.x..area.right())
+                .filter(|x| matches!(row[*x as usize].symbol.as_str(), "█" | "░"))
+                .collect();
+            (!bars.is_empty()).then(|| (*bars.first().unwrap(), *bars.last().unwrap()))
+        })
+        .collect();
+    assert_eq!(ranges.len(), 6);
+    assert!(
+        ranges.windows(2).all(|pair| pair[0] == pair[1]),
+        "{ranges:?}"
+    );
+}
+
+#[test]
 fn retained_quota_displays_its_original_success_time() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.usage_column_collapsed = false;

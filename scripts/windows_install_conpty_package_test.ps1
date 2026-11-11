@@ -40,7 +40,7 @@ $forbiddenPowerShellCommands = @(
 if ($forbiddenPowerShellCommands.Count -ne 0) {
     throw "installer uses forbidden PowerShell network execution: $($forbiddenPowerShellCommands -join ', ')"
 }
-foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry")) {
+foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry", "Resolve-HerdrVersion")) {
     $definition = $installerAst.FindAll(
         {
             param($node)
@@ -53,6 +53,18 @@ foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry")) {
         throw "installer is missing function $functionName"
     }
     Invoke-Expression $definition.Extent.Text
+}
+
+$forkTag = "fork-v0.9.5-preview.2026-11-11-086fa74f"
+foreach ($case in @(
+    @{ Channel = "preview"; Manifest = @{ base_version = "0.9.5"; build_id = $forkTag }; Expected = $forkTag },
+    @{ Channel = "preview"; Manifest = @{ base_version = "0.9.5"; build_id = "2026-11-11-086fa74f638c" }; Expected = "0.9.5-preview.2026-11-11-086fa74f638c" },
+    @{ Channel = "stable"; Manifest = @{ version = "0.9.5" }; Expected = "0.9.5" }
+)) {
+    $actual = Resolve-HerdrVersion -Manifest ([pscustomobject]$case.Manifest) -SelectedChannel $case.Channel
+    if ($actual -cne $case.Expected) {
+        throw "Installer package identity mismatch: expected $($case.Expected), got $actual"
+    }
 }
 
 $pathTestVariable = "HERDR_INSTALLER_PATH_TEST"

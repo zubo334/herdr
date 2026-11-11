@@ -228,6 +228,68 @@ fn print_profiles(label: &str, build: fn(usize) -> Vec<Workspace>) {
     print_stage("combined pipeline", &rows, |stats| stats.total);
 }
 
+fn print_usage_profiles(label: &str, build: fn(usize) -> Vec<Workspace>) {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use herdr_usage::{ProviderId, ProviderUsage, UsageSnapshot, Window};
+
+    let rows = CARDINALITIES.map(|count| {
+        let mut pipeline = RenderPipeline::new(build(count));
+        let endpoint = crate::client::endpoint::ClientEndpointId::Local;
+        let snapshot = super::client_shell::snapshot(&pipeline.app, "bench-boot", 1, None, None);
+        pipeline
+            .client
+            .set_endpoint_snapshot_for_generation(&endpoint, 1, Box::new(snapshot));
+        let mut usage = UsageSnapshot::default();
+        for provider in [ProviderId::Codex, ProviderId::Claude, ProviderId::Zai] {
+            let mut value = ProviderUsage::new(provider);
+            value.windows = vec![
+                Window::new("session", "5h", 12.5),
+                Window::new("weekly", "Weekly", 100.0),
+            ];
+            usage.platforms.insert(provider.as_str().into(), value);
+        }
+        assert!(pipeline.client.set_endpoint_usage(
+            &endpoint,
+            1,
+            crate::protocol::endpoint::EndpointUsageProjection {
+                boot_id: "bench-boot".into(),
+                revision: 1,
+                usage,
+            },
+        ));
+        pipeline.render_once();
+        let frame = pipeline.client.compose(COLS, ROWS).unwrap();
+        let button = frame.cells[..COLS as usize]
+            .windows(7)
+            .position(|cells| {
+                cells
+                    .iter()
+                    .map(|cell| cell.symbol.as_str())
+                    .collect::<String>()
+                    == " Usage "
+            })
+            .expect("collapsed Usage button");
+        let input =
+            pipeline
+                .client
+                .handle_raw_events(vec![crate::raw_input::RawInputEvent::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: button as u16,
+                    row: 0,
+                    modifiers: KeyModifiers::empty(),
+                })]);
+        assert!(input.resize);
+        pipeline.render_once();
+        let frame = pipeline.client.compose(COLS, ROWS).unwrap();
+        assert!(frame.cells.iter().any(|cell| cell.symbol == "█"));
+        (count, profile_pipeline(pipeline))
+    });
+    println!("{label} with expanded Usage (three providers, six quota bars)");
+    print_stage("server pane surface", &rows, |stats| stats.server);
+    print_stage("client shell composition", &rows, |stats| stats.client);
+    print_stage("combined pipeline", &rows, |stats| stats.total);
+}
+
 fn profile_snapshot_encoding(
     build: fn(usize) -> Vec<Workspace>,
     count: usize,
@@ -607,8 +669,10 @@ fn print_surface_reuse_profiles() {
 #[ignore = "manual client-rendered pipeline scaling profile"]
 async fn render_scale_profile() {
     print_profiles("background workspaces (one pane each)", workspaces);
+    print_usage_profiles("background workspaces", workspaces);
     print_snapshot_encoding_profiles("background workspaces", workspaces);
     print_profiles("active panes (one workspace)", active_panes);
+    print_usage_profiles("active panes", active_panes);
     print_snapshot_encoding_profiles("active panes", active_panes);
     print_token_rule_profiles();
     print_surface_reuse_profiles();

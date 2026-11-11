@@ -599,8 +599,9 @@ fn render_account_usage(
     offset: time::UtcOffset,
     config: &ClientShellConfig,
 ) {
-    use crate::usage::presentation::{bar, local_time, percent};
+    use crate::usage::presentation::{local_time, UsageRowLayout};
     let mut row = inner.y.saturating_add(1);
+    let quota_layout = UsageRowLayout::new(inner.width.into(), 1, 8, 120);
     for usage in snapshot.platforms.values() {
         let mut line = |text: &str, color, bold: bool| {
             if row < inner.bottom() {
@@ -634,17 +635,7 @@ fn render_account_usage(
             } else {
                 config.palette.green
             };
-            let label: String = window.label.chars().take(8).collect();
-            let label_width = display_width(&label).saturating_add(1);
-            let percent = percent(window.used_percent);
-            let width = inner
-                .width
-                .saturating_sub(label_width + display_width(&percent) + 3);
-            line(
-                &format!(" {label} {} {percent}", bar(window, width.into())),
-                color,
-                false,
-            );
+            line(&quota_layout.format(window), color, false);
         }
         if usage.windows.len() > 2 {
             line(

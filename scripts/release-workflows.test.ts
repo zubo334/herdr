@@ -10,6 +10,38 @@ const release = load("release");
 const adminGate = release.jobs["validate-release-source"].steps[0];
 
 describe("fork workflow boundaries", () => {
+  test("fork binaries and manifests share immutable preflight metadata", () => {
+    const fork = load("fork-release");
+    const metadata = fork.jobs.metadata;
+    const build = fork.jobs.build;
+    const publish = fork.jobs.release;
+    expect(metadata.steps[0].with["fetch-depth"]).toBe(0);
+    expect(metadata.steps[1].env.FORK_RELEASE_VERSION).toBe("${{ inputs.version }}");
+    expect(metadata.steps[1].run).toContain("scripts/fork_release_metadata.py");
+    expect(build.needs).toBe("metadata");
+    for (const [variable, output] of [
+      ["HERDR_BUILD_CHANNEL", "channel"],
+      ["HERDR_BUILD_ID", "build_id"],
+      ["HERDR_BUILD_COMMIT", "commit"],
+    ]) {
+      expect(build.env[variable]).toBe("${{ needs.metadata.outputs." + output + " }}");
+    }
+    for (const job of [build, publish]) {
+      expect(job.steps[0].with.ref).toBe("${{ needs.metadata.outputs.commit }}");
+    }
+    expect(publish.needs).toEqual(["metadata", "build"]);
+    const check = build.steps.find((step: any) => step.name === "Verify native binary version");
+    expect(check.env.EXPECTED_VERSION).toBe("${{ needs.metadata.outputs.tag }}");
+    expect(check.run).toContain('test "$ACTUAL" = "herdr $EXPECTED_VERSION"');
+    const manifest = publish.steps.find((step: any) => step.name === "Generate preview.json");
+    for (const key of ["build_id", "commit", "built_at", "base_version", "protocol", "endpoint_generation"]) {
+      expect(manifest.run).toContain("${{ needs.metadata.outputs." + key + " }}");
+    }
+    expect(manifest.run).not.toContain("date -u");
+    const tag = publish.steps.find((step: any) => step.name === "Verify or create immutable release tag");
+    expect(tag.run).toContain('test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT"');
+  });
+
   test("all checked-in workflows are valid YAML", () => {
     const directory = new URL("../.github/workflows/", import.meta.url);
     for (const name of readdirSync(directory).filter(name => name.endsWith(".yml"))) {

@@ -18,7 +18,31 @@ env:
   RUST_TOOLCHAIN_VERSION: 1.96.1
 
 jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      channel: ${{ steps.meta.outputs.channel }}
+      build_id: ${{ steps.meta.outputs.build_id }}
+      commit: ${{ steps.meta.outputs.commit }}
+      base_version: ${{ steps.meta.outputs.base_version }}
+      built_at: ${{ steps.meta.outputs.built_at }}
+      protocol: ${{ steps.meta.outputs.protocol }}
+      endpoint_generation: ${{ steps.meta.outputs.endpoint_generation }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve immutable release metadata
+        id: meta
+        env:
+          FORK_RELEASE_VERSION: ${{ inputs.version }}
+        run: python3 scripts/fork_release_metadata.py --github-output "$GITHUB_OUTPUT"
+
   build:
+    needs: metadata
     permissions:
       contents: read
     strategy:
@@ -52,11 +76,17 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     env:
+      HERDR_BUILD_CHANNEL: ${{ needs.metadata.outputs.channel }}
+      HERDR_BUILD_ID: ${{ needs.metadata.outputs.build_id }}
+      HERDR_BUILD_COMMIT: ${{ needs.metadata.outputs.commit }}
       LIBGHOSTTY_VT_OPTIMIZE: ${{ matrix.libghostty_vt_optimize }}
       LIBGHOSTTY_VT_SIMD: ${{ matrix.libghostty_vt_simd }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
@@ -111,6 +141,17 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Verify native binary version
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-apple-darwin' || runner.os == 'Windows'
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.metadata.outputs.tag }}
+        run: |
+          BINARY="target/${{ matrix.target }}/release/herdr"
+          if [ "$RUNNER_OS" = "Windows" ]; then BINARY="$BINARY.exe"; fi
+          ACTUAL=$("$BINARY" --version | tr -d '\r')
+          test "$ACTUAL" = "herdr $EXPECTED_VERSION"
+
       - name: Rename binary
         if: runner.os != 'Windows'
         run: cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
@@ -135,60 +176,36 @@ jobs:
           path: ${{ matrix.name }}
 
   release:
-    needs: build
+    needs: [metadata, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Resolve version
-        id: version
+      - name: Verify or create immutable release tag
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+          COMMIT: ${{ needs.metadata.outputs.commit }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
+          if git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT"
           else
-            VERSION="${GITHUB_REF_NAME#fork-v}"
-            VERSION="${VERSION#v}"
-          fi
-          TAG="fork-v${VERSION}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Create and push tag
-        if: inputs.version != ''
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          TAG="${{ steps.version.outputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists"
-          else
-            git tag "$TAG"
+            git tag "$TAG" "$COMMIT"
             git push origin "$TAG"
           fi
 
-      - name: Extract build metadata
-        id: meta
-        run: |
-          BASE_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          PROTOCOL=$(grep 'pub const PROTOCOL_VERSION' src/protocol/wire.rs | sed 's/.*= \([0-9]*\);/\1/')
-          COMMIT=$(git rev-parse HEAD)
-          BUILD_ID="fork-$(date -u +%Y-%m-%d)-${COMMIT:0:12}"
-          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "protocol=$PROTOCOL" >> "$GITHUB_OUTPUT"
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
-          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Generate latest.json
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ needs.metadata.outputs.version }}"
+          TAG="${{ needs.metadata.outputs.tag }}"
           cat > latest.json << EOF
           {
             "version": "$VERSION",
@@ -205,12 +222,13 @@ jobs:
 
       - name: Generate preview.json
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          BASE="${{ steps.meta.outputs.base_version }}"
-          BUILD_ID="${{ steps.meta.outputs.build_id }}"
-          COMMIT="${{ steps.meta.outputs.commit }}"
-          BUILT_AT="${{ steps.meta.outputs.built_at }}"
-          PROTOCOL="${{ steps.meta.outputs.protocol }}"
+          TAG="${{ needs.metadata.outputs.tag }}"
+          BASE="${{ needs.metadata.outputs.base_version }}"
+          BUILD_ID="${{ needs.metadata.outputs.build_id }}"
+          COMMIT="${{ needs.metadata.outputs.commit }}"
+          BUILT_AT="${{ needs.metadata.outputs.built_at }}"
+          PROTOCOL="${{ needs.metadata.outputs.protocol }}"
+          ENDPOINT_GENERATION="${{ needs.metadata.outputs.endpoint_generation }}"
           REPO="${{ github.repository }}"
           SHA_LINUX_X86=$(sha256sum herdr-linux-x86_64/herdr-linux-x86_64 | cut -d' ' -f1)
           SHA_LINUX_ARM=$(sha256sum herdr-linux-aarch64/herdr-linux-aarch64 | cut -d' ' -f1)
@@ -226,6 +244,7 @@ jobs:
             "commit": "$COMMIT",
             "built_at": "$BUILT_AT",
             "protocol": $PROTOCOL,
+            "endpoint_generation": $ENDPOINT_GENERATION,
             "notes": "Fork release $TAG",
             "builds": {},
             "assets": {
@@ -240,15 +259,16 @@ jobs:
 
       - name: Generate release notes
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.metadata.outputs.version }}"
           echo "## Fork Release v${VERSION}" > RELEASE_NOTES.md
           echo "" >> RELEASE_NOTES.md
-          echo "Based on upstream herdr v${VERSION} with usage-monitor plugin and UI changes." >> RELEASE_NOTES.md
+          BASE_VERSION="${{ needs.metadata.outputs.base_version }}"
+          echo "Based on upstream herdr v${BASE_VERSION} with native account usage and UI changes." >> RELEASE_NOTES.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.metadata.outputs.tag }}
           files: |
             herdr-linux-x86_64/herdr-linux-x86_64
             herdr-linux-aarch64/herdr-linux-aarch64

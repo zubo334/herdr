@@ -448,15 +448,25 @@ fn stable_channel_should_install(
 }
 
 fn preview_display_version(base_version: &str, build_id: &str) -> String {
-    format!(
-        "{}-preview.{}",
-        base_version.trim_start_matches('v'),
-        build_id
-    )
+    crate::build_info::preview_version(base_version, build_id)
 }
 
 fn release_info_from_preview_manifest(
     manifest: &PreviewManifest,
+) -> Result<Option<ReleaseInfo>, String> {
+    release_info_for_installed_preview(
+        manifest,
+        crate::build_info::is_preview(),
+        crate::build_info::build_id(),
+        crate::build_info::commit(),
+    )
+}
+
+fn release_info_for_installed_preview(
+    manifest: &PreviewManifest,
+    installed_is_preview: bool,
+    installed_build_id: Option<&str>,
+    installed_commit: Option<&str>,
 ) -> Result<Option<ReleaseInfo>, String> {
     if manifest.channel != "preview" {
         return Err(format!(
@@ -468,8 +478,9 @@ fn release_info_from_preview_manifest(
     if build_id.is_empty() {
         return Err("preview manifest build_id is empty".into());
     }
-    if crate::build_info::is_preview()
-        && crate::build_info::build_id().is_some_and(|current| current == build_id)
+    if installed_is_preview
+        && installed_build_id.is_some_and(|current| current == build_id)
+        && installed_commit.is_none_or(|current| current == manifest.commit)
     {
         return Ok(None);
     }
@@ -3920,6 +3931,48 @@ mod tests {
         )
         .unwrap();
         assert!(!first_windows_stable_is_pending(&with_windows, true, true));
+    }
+
+    #[test]
+    fn fork_preview_identity_matches_installed_build_and_keeps_distinct_commits() {
+        let (os, arch) = platform_target();
+        let tag = "fork-v0.9.5-preview.2026-11-11-086fa74f";
+        let commit = "086fa74f638c1149044dc1a52c5c34799d31bad0";
+        let manifest: PreviewManifest = serde_json::from_value(serde_json::json!({
+            "channel":"preview", "base_version":"0.9.5", "build_id":tag,
+            "commit":commit, "built_at":"2026-11-11T07:00:00Z", "protocol":22,
+            "notes":format!("Fork release {tag}"),
+            "assets": {format!("{os}-{arch}"): {"url":"https://example.com/herdr.zip"}}
+        }))
+        .unwrap();
+        assert!(
+            release_info_for_installed_preview(&manifest, true, Some(tag), Some(commit))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            release_info_for_installed_preview(&manifest, true, Some(tag), None)
+                .unwrap()
+                .is_none()
+        );
+        for (preview, id, sha) in [
+            (false, None, None),
+            (
+                true,
+                Some("fork-v0.9.5-preview.2026-11-11-other"),
+                Some(commit),
+            ),
+            (
+                true,
+                Some(tag),
+                Some("086fa74f638c0000000000000000000000000000"),
+            ),
+        ] {
+            let release = release_info_for_installed_preview(&manifest, preview, id, sha)
+                .unwrap()
+                .expect("a distinct or unidentified build still needs the update");
+            assert_eq!(release.label(), tag);
+        }
     }
 
     #[test]
