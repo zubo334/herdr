@@ -48,8 +48,12 @@ plugins/usage-monitor はポップアップの起動だけを担当し、Node.js
 ビルドし、Windows 版は ConPTY を同梱パッケージ化。preview チャネル
 更新用の `preview.json` を生成。手動ディスパッチでバージョン指定可能。
 
-`.github/workflows/fork-tag-sync.yml` — upstream が新しいタグを
-公開した際に fork へ通知。
+`.github/workflows/fork-tag-sync.yml` — 本家からの `sync: upstream` PR を既定ブランチへマージすると、そのマージコミットに fork タグを作り、Fork Release を明示的に起動する。
+タグがすでに別のコミットを指している場合は停止し、公開済みのリリースは再作成しない。
+
+fork の push と PR では、Linux/macOS/Windows のビルド・テストと Windows ConPTY パッケージ検証を実行する。
+本家用のコミット件名検証、配布ドキュメント検証、issue 操作、Web サイト配信、Nix、Windows ARM64 インストーラー検証は本家リポジトリだけで実行する。
+これらのワークフローファイルは upstream 同期用に保持する。
 
 ## 4. アップデートマニフェスト URL オーバーライド
 

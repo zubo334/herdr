@@ -1,47 +1,71 @@
 name: Fork Tag Sync
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: fork-tag-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   sync-tag:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'sync: upstream')
+    if: >-
+      github.event.repository.fork == true &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.repo.full_name == 'herdrdev/herdr' &&
+      startsWith(github.event.pull_request.title, 'sync: upstream')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Extract upstream tag from PR title
         id: tag
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          # PR title format: "sync: upstream <name> (<tag>)"
-          TAG=$(echo "$TITLE" | grep -oP '\(v[\d.]+\)' | tr -d '()')
+          set -euo pipefail
+          # PR title format: "sync: upstream <name> (<tag>)".
+          TAG="$(printf '%s' "$PR_TITLE" | grep -oP '\(v[0-9]+\.[0-9]+\.[0-9]+\)' | tr -d '()' | head -1 || true)"
           if [ -z "$TAG" ]; then
-            TAG=$(echo "$TITLE" | grep -oP 'v[\d.]+')
+            TAG="$(printf '%s' "$PR_TITLE" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Extracted tag: $TAG"
 
-      - name: Create fork tag and trigger release
+      - name: Tag merged source and dispatch fork release
         if: steps.tag.outputs.tag != ''
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          FORK_TAG="fork-${TAG}"
-          if git rev-parse "$FORK_TAG" >/dev/null 2>&1; then
-            echo "Tag $FORK_TAG already exists, skipping"
+          set -euo pipefail
+          FORK_TAG="fork-$TAG"
+          if git rev-parse --verify "refs/tags/$FORK_TAG" >/dev/null 2>&1; then
+            if [ "$(git rev-parse "$FORK_TAG^{commit}")" != "$MERGE_SHA" ]; then
+              echo "::error::$FORK_TAG points at a different commit"
+              exit 1
+            fi
+          else
+            git tag "$FORK_TAG" "$MERGE_SHA"
+            git push origin "refs/tags/$FORK_TAG"
+          fi
+          if gh release view "$FORK_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$FORK_TAG is already published"
             exit 0
           fi
-          git tag "$FORK_TAG"
-          git push origin "$FORK_TAG"
-          echo "Created and pushed tag $FORK_TAG"
+          # A GITHUB_TOKEN tag push does not trigger another workflow.
+          gh workflow run fork-release.yml --repo "$GITHUB_REPOSITORY" \
+            --ref "$FORK_TAG" -f "version=${TAG#v}"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -8,6 +8,61 @@ const load = (name: string): any =>
 const preview = load("preview");
 const release = load("release");
 const adminGate = release.jobs["validate-release-source"].steps[0];
+
+describe("fork workflow boundaries", () => {
+  test("all checked-in workflows are valid YAML", () => {
+    const directory = new URL("../.github/workflows/", import.meta.url);
+    for (const name of readdirSync(directory).filter(name => name.endsWith(".yml"))) {
+      expect(Bun.YAML.parse(readFileSync(new URL(name, directory), "utf8"))).toBeObject();
+    }
+  });
+
+  test("upstream publishing and distribution jobs do not run in forks", () => {
+    for (const [workflow, job] of [
+      ["distribution", "validate"],
+      ["label-next-release-issues", "close"],
+      ["website-deploy", "trigger"],
+      ["nix", "flake-check"],
+      ["windows-arm64", "installer"],
+    ]) {
+      expect(load(workflow).jobs[job].if).toBe("github.repository == 'herdrdev/herdr'");
+    }
+  });
+
+  test("fork CI keeps platform checks while allowing upstream merge subjects", () => {
+    const ci = load("ci");
+    expect(ci.on.push.branches).toContain("master");
+    expect(ci.on.pull_request).toBeDefined();
+    expect(ci.jobs["conventional-commits"].if).toContain("github.repository == 'herdrdev/herdr'");
+    expect(ci.jobs.check.if).toBeUndefined();
+    expect(ci.jobs.check.strategy.matrix.include.map((entry: any) => entry.os))
+      .toEqual(["ubuntu-latest", "macos-latest", "windows-latest"]);
+    expect(ci.jobs["windows-conpty-package"].if).toBeUndefined();
+    expect(ci.env.HERDR_USAGE_DISABLED).toBe("1");
+  });
+
+  test("merged upstream syncs dispatch release from an immutable merged-source tag", () => {
+    const sync = load("fork-tag-sync");
+    expect(sync.on).toEqual({ pull_request_target: { types: ["closed"] } });
+    const job = sync.jobs["sync-tag"];
+    expect(job.if).toContain("github.event.repository.fork == true");
+    expect(job.if).toContain("github.event.pull_request.merged == true");
+    expect(job.if).toContain("github.event.pull_request.head.repo.full_name == 'herdrdev/herdr'");
+    expect(job.if).toContain("github.event.pull_request.base.ref == github.event.repository.default_branch");
+    expect(job.steps[0].with.ref).toBe("${{ github.event.pull_request.merge_commit_sha }}");
+    expect(job.permissions).toEqual({ contents: "write", actions: "write" });
+    const extract = job.steps.find((step: any) => step.id === "tag");
+    expect(extract.env.PR_TITLE).toBe("${{ github.event.pull_request.title }}");
+    expect(extract.run).not.toContain("${{ github.event.pull_request.title }}");
+    const dispatch = job.steps.at(-1);
+    expect(dispatch.run).toContain('git tag "$FORK_TAG" "$MERGE_SHA"');
+    expect(dispatch.run).toContain('git rev-parse "$FORK_TAG^{commit}"');
+    expect(dispatch.run).toContain("gh workflow run fork-release.yml");
+    expect(dispatch.run).toContain('--ref "$FORK_TAG"');
+    expect(dispatch.run).toContain('-f "version=${TAG#v}"');
+    expect(dispatch.env.GH_TOKEN).toBe("${{ github.token }}");
+  });
+});
 
 describe("official publishing workflow boundaries", () => {
   test("publishing is tag-only while normal PR CI remains enabled", () => {
