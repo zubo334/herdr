@@ -42,6 +42,23 @@ async fn quiet_usage_changes_reach_inactive_clients_without_a_pane_or_snapshot_c
         assert!(render.try_recv().is_err());
         controls.push((client_id, initial.revision, control, render));
     }
+    // Unix's first render also normalizes shell state. Establish a rendered
+    // baseline before asserting that a later quota-only change leaves it alone.
+    server.render_and_stream();
+    for (client_id, revision, control, render) in &mut controls {
+        for payload in control.try_iter() {
+            let ServerMessage::EndpointControl { kind, .. } = read_server_message(payload) else {
+                panic!("expected initial shell projection");
+            };
+            assert!(matches!(
+                kind.as_str(),
+                protocol::endpoint::AGENT_COMPLETIONS_KIND
+                    | protocol::endpoint::ENDPOINT_SNAPSHOT_KIND
+            ));
+        }
+        *revision = server.clients[client_id].shell_projection_revision;
+        assert!(render.try_recv().is_err());
+    }
     // Both fractions round to the same legacy value, so the shell snapshot is unchanged.
     server.app.state.usage = sample(17.2);
     server.app.state.usage_revision = 2;
