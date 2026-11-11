@@ -3,6 +3,11 @@ use super::*;
 #[tokio::test]
 async fn quiet_usage_changes_reach_inactive_clients_without_a_pane_or_snapshot_change() {
     let mut server = test_headless_server();
+    // This is a quota-only test: an auto-created shell could emit or exit
+    // between renders and legitimately change the endpoint snapshot.
+    server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("usage")];
+    server.app.state.active = Some(0);
+    server.app.state.ensure_test_terminals();
     let sample = |percent| {
         let mut snapshot = herdr_usage::UsageSnapshot::default();
         let mut provider = herdr_usage::ProviderUsage::new(herdr_usage::ProviderId::Codex);
@@ -42,6 +47,7 @@ async fn quiet_usage_changes_reach_inactive_clients_without_a_pane_or_snapshot_c
         assert!(render.try_recv().is_err());
         controls.push((client_id, initial.revision, control, render));
     }
+    assert_eq!(server.app.terminal_runtimes.len(), 0);
     // Force an initial projection refresh on every platform so the asynchronous
     // writer barrier is exercised before measuring a quota-only change.
     server.server_config_diagnostic_without_keybindings = Some("fixture initialized".into());
@@ -84,12 +90,29 @@ async fn quiet_usage_changes_reach_inactive_clients_without_a_pane_or_snapshot_c
             *revision
         );
         assert_eq!(server.clients[client_id].shell_usage_revision, Some(2));
-        assert!(control.try_recv().is_err());
         assert!(render.try_recv().is_err());
     }
     server.render_and_stream();
+    for (client_id, revision, _, _) in &controls {
+        assert_eq!(
+            server.clients[client_id].shell_projection_revision,
+            *revision
+        );
+    }
+    // Closing the writers lets their queues drain before the empty assertion.
+    // try_recv alone could miss a delayed duplicate on the writer thread.
+    server.clients.clear();
     for (_, _, control, render) in controls {
-        assert!(control.try_recv().is_err());
-        assert!(render.try_recv().is_err());
+        let extra = control
+            .recv_timeout(Duration::from_secs(1))
+            .map(read_server_message);
+        assert!(
+            matches!(extra, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
+            "unexpected control after quota update: {extra:?}"
+        );
+        assert!(matches!(
+            render.recv_timeout(Duration::from_secs(1)),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+        ));
     }
 }
