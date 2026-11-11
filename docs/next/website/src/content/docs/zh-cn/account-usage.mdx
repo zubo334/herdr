@@ -1,0 +1,60 @@
+---
+title: 账户用量
+description: 在此 fork 中查看 Codex、Claude Code 和 Z.AI 的账户配额。
+---
+
+此 fork 直接通过提供商 API 获取配额，并显示在右侧的 Usage 栏中。
+点击标签栏的 Usage 展开，点击栏标题折叠。客户端会保存展开状态。
+
+服务器负责收集，因此通过 SSH 连接也能看到相同数据。
+收集过程不创建或操作聊天窗格。可选的 Usage Monitor 插件只负责打开更大的弹出式仪表盘。
+
+## 凭据
+
+Codex 使用 `CODEX_HOME/auth.json` 或 `~/.codex/auth.json` 中已有的 ChatGPT 登录。
+Claude Code 使用已有的凭据文件，并遵循 `CLAUDE_SECURESTORAGE_CONFIG_DIR` 和
+`CLAUDE_CONFIG_DIR`；默认 macOS Keychain 项仅在无需弹出授权提示时读取。
+Herdr 不修改这些凭据，也不使用它们的刷新令牌。
+
+Z.AI 使用 `Z_AI_API_KEY`。BigModel 中国区域可设置 `region = "bigmodel-cn"`。
+团队范围还需要 `team = true`，以及 `Z_AI_BIGMODEL_ORGANIZATION` 和
+`Z_AI_BIGMODEL_PROJECT`。
+
+## 刷新与显示
+
+在 Herdr 配置目录中创建 `usage.toml`：
+
+```toml
+enabled = true
+interval_seconds = 60
+timeout_seconds = 10
+
+[zai]
+enabled = true
+region = "global"
+team = false
+```
+
+一次收集结束并经过指定间隔后，服务器开始下次收集。
+刷新失败时，仅保留同一账户的上次数据，同时显示原始成功时间和过期提示。
+无法获取的数据不会被显示为零。界面会显示提供商返回的百分比、命名配额、
+重置时间、额度余额和支出上限。
+
+设置 `enabled = false` 可关闭收集。测试时可以使用 `HERDR_USAGE_DISABLED=1`，
+完全禁用后台凭据读取和请求。
+
+## CLI 与仪表盘
+
+```sh
+herdr usage fetch --provider codex --json
+herdr usage fetch --write-cache
+herdr usage get
+herdr usage dashboard
+herdr usage license
+```
+
+`fetch` 无需启动服务器。`get` 和默认仪表盘通过 `usage.get` 读取服务器缓存。
+使用 `dashboard --cache PATH --once` 可查看离线 JSON 缓存。
+交互式仪表盘通过 q/Esc 关闭，通过方向键、j/k 或 PageUp/PageDown 滚动。
+
+提供商代码移植自 MIT 许可的 CodexBar 直接 OAuth/API 策略，使用 Rust 实现。

@@ -1,0 +1,67 @@
+---
+title: Account usage
+description: View Codex, Claude Code, and Z.AI account quotas in this fork.
+---
+
+This fork collects account quotas directly through provider APIs and shows them
+in the right-hand Usage column. Click Usage in the tab bar to expand the column;
+click its heading to collapse it. The client remembers this preference.
+
+The server owns collection, so the same data is available over SSH. Agent panes
+are not used for usage queries. The optional Usage Monitor plugin opens a larger
+dashboard; it is not required for collection or the column.
+
+## Credentials
+
+Codex uses its existing `CODEX_HOME/auth.json` or `~/.codex/auth.json` ChatGPT
+login. Claude Code uses its existing credential file, respecting
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` and `CLAUDE_CONFIG_DIR`; the default macOS
+Keychain item is read only when it can be accessed without a prompt.
+Herdr does not modify these credentials or redeem their refresh tokens.
+
+Z.AI uses `Z_AI_API_KEY`. BigModel China also supports its compatible environment
+and key-file sources. Put `region = "bigmodel-cn"` in the Z.AI configuration to
+select that region. Team scope needs `team = true` and both
+`Z_AI_BIGMODEL_ORGANIZATION` and `Z_AI_BIGMODEL_PROJECT`.
+
+## Refresh and display
+
+Create `usage.toml` in Herdr's configuration directory to change collection:
+
+```toml
+enabled = true
+interval_seconds = 60
+timeout_seconds = 10
+
+[zai]
+enabled = true
+region = "global"
+team = false
+```
+
+The next collection starts after the previous one finishes and the configured
+interval passes. Failed refreshes retain only the same account's previous data,
+with its original success time and a stale notice. Unavailable data is distinct
+from zero usage. Percentages, named limits, resets, credits and spend caps appear
+when the provider supplies them.
+
+Set `enabled = false` to disable collection. `HERDR_USAGE_DISABLED=1` prevents
+background credential reads and requests entirely, which is useful in test environments.
+
+## CLI and dashboard
+
+```sh
+herdr usage fetch --provider codex --json
+herdr usage fetch --write-cache
+herdr usage get
+herdr usage dashboard
+herdr usage license
+```
+
+`fetch` works without a server. `get` and the default dashboard read server-owned
+cached data through `usage.get`. Use `dashboard --cache PATH --once` to inspect an
+offline JSON cache. The interactive dashboard closes with q/Esc and scrolls with
+arrows, j/k or PageUp/PageDown.
+
+The provider implementation is a Rust port of CodexBar's direct OAuth/API
+strategies under its MIT license. Browser and chat-command probes are not used.

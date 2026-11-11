@@ -247,6 +247,10 @@ mod tests {
         let mut actual = endpoint_method_shape_digests();
         // Freeze additive methods separately without rewriting the published fixture.
         assert_eq!(
+            actual.remove("usage.get").as_deref(),
+            Some("b1a216a34622354ea7abc0a75a7e1efefb8149853d3b76d427d07ed83fdca8dd")
+        );
+        assert_eq!(
             actual.remove("pane.clear").as_deref(),
             Some("0301d288ba198ddaa427dd7421c71911cccaf4ea03544531efa8b67ca21b08f6")
         );

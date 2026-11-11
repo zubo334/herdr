@@ -1667,7 +1667,7 @@ impl AppState {
             AppEvent::WorktreeAddFinished(_) => Vec::new(),
             AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
             AppEvent::WorktreeReadFinished(_) => Vec::new(),
-            AppEvent::TabBarCommandFinished { .. } => Vec::new(),
+            AppEvent::TabBarCommandFinished { .. } | AppEvent::UsageRefreshed(_) => Vec::new(),
             AppEvent::PluginCommandFinished { .. } => Vec::new(),
         }
     }

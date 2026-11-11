@@ -23,6 +23,11 @@ pub(crate) use super::unix_common::{
     ClientStreamReader, PinnedSshControlSocket, StatusCommandGuard,
 };
 
+/// Claude Code on Linux stores OAuth credentials in its JSON credential file.
+pub(crate) fn read_usage_secure_store(_service: &str) -> Option<Vec<u8>> {
+    None
+}
+
 #[cfg(test)]
 mod config_file_tests;
 

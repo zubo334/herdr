@@ -1,0 +1,63 @@
+---
+title: アカウント使用量
+description: この fork で Codex、Claude Code、Z.AI のアカウント上限を確認する。
+---
+
+この fork はプロバイダーの API から使用量を取得し、右側の Usage カラムに表示する。
+タブバーの Usage で展開し、カラムの見出しで折り畳む。
+開閉状態はクライアントに保存される。
+
+サーバーが取得を担当するため、SSH 接続でも同じデータを表示できる。
+使用量の問い合わせにエージェントのペインは使用しない。
+任意の Usage Monitor プラグインを導入すると、大きなダッシュボードをポップアップで開ける。
+
+## 認証情報
+
+Codex は `CODEX_HOME/auth.json` または `~/.codex/auth.json` の既存の ChatGPT ログインを使用する。
+Claude Code は既存の認証ファイルを使用し、`CLAUDE_SECURESTORAGE_CONFIG_DIR` と `CLAUDE_CONFIG_DIR` を考慮する。
+既定の macOS Keychain は、確認画面を出さずに取得できる場合に読み取る。
+Herdr はこれらの認証情報を変更せず、更新トークンも交換しない。
+
+Z.AI は `Z_AI_API_KEY` を使用する。
+BigModel China を使う場合は `region = "bigmodel-cn"` を指定する。
+チームの使用量には `team = true` と `Z_AI_BIGMODEL_ORGANIZATION`、`Z_AI_BIGMODEL_PROJECT` の両方が必要である。
+
+## 更新と表示
+
+Herdr の設定ディレクトリに `usage.toml` を作成する。
+
+```toml
+enabled = true
+interval_seconds = 60
+timeout_seconds = 10
+
+[zai]
+enabled = true
+region = "global"
+team = false
+```
+
+前の取得が終わり、指定した間隔が経過すると次の取得を開始する。
+取得に失敗した場合は同じアカウントの前回の値だけを保持し、成功時刻と古い値であることを示す。
+取得できない値を使用量ゼロとして表示しない。
+プロバイダーが返す使用率、個別の上限、リセット時刻、クレジット、支出上限を確認できる。
+
+`enabled = false` で取得を無効化する。
+テスト環境では `HERDR_USAGE_DISABLED=1` を設定すると、バックグラウンドでの認証情報の読み込みと API 呼び出しを停止できる。
+
+## CLI とダッシュボード
+
+```sh
+herdr usage fetch --provider codex --json
+herdr usage fetch --write-cache
+herdr usage get
+herdr usage dashboard
+herdr usage license
+```
+
+`fetch` はサーバーを起動せずに実行できる。
+`get` と既定のダッシュボードは `usage.get` でサーバーのキャッシュを読む。
+JSON ファイルを確認する場合は `dashboard --cache PATH --once` を使用する。
+対話型のダッシュボードは q/Esc で閉じ、矢印キー、j/k、PageUp/PageDown でスクロールする。
+
+プロバイダーの実装は、MIT ライセンスの CodexBar にある OAuth と API による直接取得処理を Rust に移植したものである。

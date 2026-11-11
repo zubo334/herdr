@@ -12,6 +12,7 @@ mod surface_delta_tests;
 mod surface_interest_tests;
 #[path = "surface_scroll.rs"]
 mod surface_scroll_tests;
+mod usage;
 
 fn client_shell_projection(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
@@ -19,23 +20,41 @@ fn client_shell_projection(
     Box<protocol::ClientShellSnapshot>,
     protocol::endpoint::EndpointAgentCompletions,
 ) {
-    let read_control = |expected| {
+    let mut completions = None;
+    let mut usage = None;
+    let snapshot = loop {
         let ServerMessage::EndpointControl { kind, data } = read_server_message(
             receiver
                 .recv_timeout(Duration::from_secs(1))
                 .expect("endpoint projection"),
         ) else {
-            panic!("expected endpoint control {expected}");
+            panic!("expected endpoint projection control");
         };
-        assert_eq!(kind, expected);
-        data
+        match kind.as_str() {
+            protocol::endpoint::AGENT_COMPLETIONS_KIND => {
+                completions = Some(
+                    serde_json::from_str::<protocol::endpoint::EndpointAgentCompletions>(&data)
+                        .unwrap(),
+                );
+            }
+            protocol::endpoint::USAGE_KIND => {
+                let projection: protocol::endpoint::EndpointUsageProjection =
+                    serde_json::from_str(&data).unwrap();
+                assert!(projection.usage.validate());
+                usage = Some(projection);
+            }
+            protocol::endpoint::ENDPOINT_SNAPSHOT_KIND => {
+                break serde_json::from_str::<Box<protocol::ClientShellSnapshot>>(&data).unwrap();
+            }
+            other => panic!("unexpected projection control {other}"),
+        }
     };
-    let completions: protocol::endpoint::EndpointAgentCompletions =
-        serde_json::from_str(&read_control(protocol::endpoint::AGENT_COMPLETIONS_KIND)).unwrap();
-    let snapshot: Box<protocol::ClientShellSnapshot> =
-        serde_json::from_str(&read_control(protocol::endpoint::ENDPOINT_SNAPSHOT_KIND)).unwrap();
+    let completions = completions.expect("completion projection precedes snapshot");
     assert_eq!(completions.boot_id, snapshot.boot_id);
     assert_eq!(completions.revision, snapshot.revision);
+    if let Some(usage) = usage {
+        assert_eq!(usage.boot_id, snapshot.boot_id);
+    }
     (snapshot, completions)
 }
 

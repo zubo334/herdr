@@ -32,6 +32,7 @@ pub(super) fn command() -> Command {
         .subcommand(completion::command())
         .subcommand(update_command())
         .subcommand(status_command())
+        .subcommand(super::usage::command())
         .subcommand(config_command())
         .subcommand(channel_command())
         .subcommand(machine::command())

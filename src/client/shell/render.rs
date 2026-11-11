@@ -324,7 +324,19 @@ pub(super) fn render_shell(
         );
     }
     if layout.usage_column.width > 0 {
-        render_usage_column(buffer, layout.usage_column, snapshot, config, &mut hits);
+        let rich_usage = state
+            .endpoints
+            .iter()
+            .find(|endpoint| &endpoint.endpoint_id == state.active_endpoint_id)
+            .and_then(super::usage::snapshot);
+        render_usage_column(
+            buffer,
+            layout.usage_column,
+            snapshot,
+            rich_usage,
+            config,
+            &mut hits,
+        );
     }
     if !config.mouse_capture {
         hits.sidebar_divider = Rect::default();
@@ -385,6 +397,7 @@ fn render_usage_column(
     buffer: &mut Buffer,
     area: Rect,
     snapshot: &ClientShellSnapshot,
+    rich_usage: Option<(&herdr_usage::UsageSnapshot, time::UtcOffset)>,
     config: &ClientShellConfig,
     hits: &mut ShellHitMap,
 ) {
@@ -414,6 +427,11 @@ fn render_usage_column(
             .add_modifier(Modifier::BOLD),
     );
     hits.usage_column_title = title_area;
+
+    if let Some((usage, offset)) = rich_usage.filter(|(usage, _)| !usage.platforms.is_empty()) {
+        render_account_usage(buffer, inner, usage, offset, config);
+        return;
+    }
 
     let entries = &snapshot.plugin_usage;
     let mut row = inner.y + 1;
@@ -476,7 +494,7 @@ fn render_usage_column(
                 break;
             }
             let color = usage_percent_color(pct);
-            let filled = ((pct as f32 / 100.0) * bar_width as f32).round() as usize;
+            let filled = ((pct.min(100) as f32 / 100.0) * bar_width as f32).round() as usize;
             let empty = (bar_width as usize).saturating_sub(filled);
             let bar_str = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
             put_text(
@@ -572,4 +590,143 @@ fn usage_time_display(iso: &str) -> String {
     let h = ((utc_h + offset.whole_hours() as i32) % 24 + 24) % 24;
     let m = ((utc_m + (offset.minutes_past_hour() as i32)) % 60 + 60) % 60;
     format!("{h:02}:{m:02}")
+}
+
+fn render_account_usage(
+    buffer: &mut Buffer,
+    inner: Rect,
+    snapshot: &herdr_usage::UsageSnapshot,
+    offset: time::UtcOffset,
+    config: &ClientShellConfig,
+) {
+    use crate::usage::presentation::{bar, local_time, percent};
+    let mut row = inner.y.saturating_add(1);
+    for usage in snapshot.platforms.values() {
+        let mut line = |text: &str, color, bold: bool| {
+            if row < inner.bottom() {
+                let style = Style::default().fg(color);
+                put_text(
+                    buffer,
+                    inner.x,
+                    row,
+                    inner.width,
+                    text,
+                    if bold {
+                        style.add_modifier(Modifier::BOLD)
+                    } else {
+                        style
+                    },
+                );
+                row += 1;
+            }
+        };
+        let title = usage
+            .plan
+            .as_deref()
+            .map(|plan| format!(" {} · {plan}", usage.display_name))
+            .unwrap_or_else(|| format!(" {}", usage.display_name));
+        line(&title, config.palette.text, true);
+        for window in usage.windows.iter().take(2) {
+            let color = if window.used_percent >= 80.0 {
+                config.palette.red
+            } else if window.used_percent >= 50.0 {
+                config.palette.yellow
+            } else {
+                config.palette.green
+            };
+            let label: String = window.label.chars().take(8).collect();
+            let label_width = display_width(&label).saturating_add(1);
+            let percent = percent(window.used_percent);
+            let width = inner
+                .width
+                .saturating_sub(label_width + display_width(&percent) + 3);
+            line(
+                &format!(" {label} {} {percent}", bar(window, width.into())),
+                color,
+                false,
+            );
+        }
+        if usage.windows.len() > 2 {
+            line(
+                &format!(" +{} additional limits", usage.windows.len() - 2),
+                config.palette.overlay0,
+                false,
+            );
+        }
+        if let Some(window) = usage
+            .windows
+            .iter()
+            .find(|window| window.resets_at.is_some())
+        {
+            if let Some(reset) = &window.resets_at {
+                line(
+                    &format!(" ↻ {} {}", window.label, local_time(reset, offset)),
+                    config.palette.overlay0,
+                    false,
+                );
+            }
+        }
+        if let Some(error) = &usage.error {
+            line(
+                &format!(
+                    " {}{}",
+                    if usage.has_data() { "Stale: " } else { "" },
+                    error.message
+                ),
+                config.palette.yellow,
+                false,
+            );
+            if let Some(updated) = &usage.updated_at {
+                line(
+                    &format!(" Data from {}", local_time(updated, offset)),
+                    config.palette.overlay0,
+                    false,
+                );
+            }
+        } else if let Some(credits) = &usage.credits {
+            let text = if credits.unlimited {
+                " Credits: unlimited".into()
+            } else {
+                credits
+                    .balance
+                    .map(|balance| format!(" Credits: {balance:.2}"))
+                    .unwrap_or_default()
+            };
+            if !text.is_empty() {
+                line(&text, config.palette.text, false);
+            }
+        } else if let Some(allowance) = usage.allowances.first() {
+            let used = allowance
+                .used
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "—".into());
+            line(
+                &format!(" {} {used} {}", allowance.label, allowance.currency),
+                config.palette.text,
+                false,
+            );
+        }
+        if let Some(credits) = usage.reset_credits {
+            line(
+                &format!(" Reset credits: {credits}"),
+                config.palette.overlay0,
+                false,
+            );
+        }
+        if usage.partial {
+            line(" Some limits unavailable", config.palette.yellow, false);
+        }
+    }
+    if row < inner.bottom() {
+        if let Some(updated) = &snapshot.updated_at {
+            put_text(
+                buffer,
+                inner.x,
+                row,
+                inner.width,
+                &format!(" Checked {}", local_time(updated, offset)),
+                Style::default().fg(config.palette.overlay0),
+            );
+        }
+    }
 }

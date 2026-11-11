@@ -1,22 +1,23 @@
 id = "usage-monitor"
 name = "Usage Monitor"
-version = "0.1.0"
-min_herdr_version = "0.8.0"
-description = "Monitor token usage across coding agents"
+version = "0.2.0"
+min_herdr_version = "0.9.5"
+description = "Open Herdr's native account quota dashboard"
 platforms = ["linux", "macos", "windows"]
-
-[[startup]]
-command = ["node", "usage-poller.js"]
-
-[[events]]
-on = "pane.agent_status_changed"
-command = ["node", "on-status-changed.js"]
 
 [[actions]]
 id = "show-usage"
 title = "Show Usage Dashboard"
 contexts = ["workspace"]
-command = ["node", "show-usage.js"]
+platforms = ["windows"]
+command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "& $env:HERDR_BIN_PATH plugin pane open --plugin usage-monitor --entrypoint dashboard; exit $LASTEXITCODE"]
+
+[[actions]]
+id = "show-usage-unix"
+title = "Show Usage Dashboard"
+contexts = ["workspace"]
+platforms = ["linux", "macos"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin usage-monitor --entrypoint dashboard-unix"]
 
 [[panes]]
 id = "dashboard"
@@ -24,4 +25,14 @@ title = "Token Usage"
 placement = "popup"
 width = "60%"
 height = "50%"
-command = ["cmd", "/c", "Z:\\gits\\herdr\\plugins\\usage-monitor\\launch.bat"]
+platforms = ["windows"]
+command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "& $env:HERDR_BIN_PATH usage dashboard; exit $LASTEXITCODE"]
+
+[[panes]]
+id = "dashboard-unix"
+title = "Account Usage"
+placement = "popup"
+width = "60%"
+height = "50%"
+platforms = ["linux", "macos"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" usage dashboard"]

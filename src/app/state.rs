@@ -826,6 +826,9 @@ pub struct AppState {
     pub agent_panel_sort: AgentPanelSort,
     /// Transient session-wide projection override for the built-in Agents view.
     pub agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
+    /// Machine-owned account quotas; independent from panes and persisted session identity.
+    pub(crate) usage: std::sync::Arc<herdr_usage::UsageSnapshot>,
+    pub(crate) usage_revision: u64,
     pub sidebar_agents: crate::config::AgentsSidebarConfig,
     pub sidebar_spaces: crate::config::SpacesSidebarConfig,
     pub next_agent_state_change_seq: u64,
@@ -1068,6 +1071,8 @@ impl AppState {
             ),
             agent_panel_sort: AgentPanelSort::Spaces,
             agent_view_override: None,
+            usage: std::sync::Arc::new(herdr_usage::UsageSnapshot::default()),
+            usage_revision: 0,
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),
             sidebar_spaces: crate::config::SpacesSidebarConfig::default(),
             next_agent_state_change_seq: 0,

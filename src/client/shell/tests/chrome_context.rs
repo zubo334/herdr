@@ -85,7 +85,8 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         state.set_snapshot(Box::new(projected.clone()));
         state.set_pane_surface(surface());
         let frame = state
-            .compose(133, 20)
+            // Reserve the fork's Usage button while preserving the upstream 107-cell repro.
+            .compose(141, 20)
             .expect("reporter's overflowing strip");
         assert_eq!(
             state.hits.new_tab.right() - state.hits.tab_scroll_left.x,
@@ -120,7 +121,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         row: left.y,
         modifiers: KeyModifiers::empty(),
     })]);
-    let frame = state.compose(133, 20).expect("manual scroll left");
+    let frame = state.compose(141, 20).expect("manual scroll left");
     assert_eq!(state.tab_scroll, end_scroll - 1);
     let right = state.hits.tab_scroll_right;
     assert_eq!(
@@ -134,7 +135,7 @@ fn focused_last_overflow_tab_shows_its_full_label() {
         row: right.y,
         modifiers: KeyModifiers::empty(),
     })]);
-    let frame = state.compose(133, 20).expect("manual scroll right");
+    let frame = state.compose(141, 20).expect("manual scroll right");
     assert_eq!(state.tab_scroll, end_scroll);
     assert!(frame_rows(&frame)[0].contains("nvim test"));
     assert_eq!(

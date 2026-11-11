@@ -29,6 +29,8 @@ const CLIENT_MESSAGE_ENDPOINT_CONTROL: u32 = 20;
 pub fn isolate_herdr_test_process(command: &mut CommandBuilder) {
     command.env_remove("HERDR_STARTUP_CWD");
     command.env_remove("HERDR_SESSION");
+    // Runtime fixtures must never collect quotas using the developer's login.
+    command.env("HERDR_USAGE_DISABLED", "1");
 }
 
 pub fn register_spawned_herdr_pid(pid: Option<u32>) {

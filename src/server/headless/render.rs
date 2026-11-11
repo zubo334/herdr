@@ -632,6 +632,28 @@ impl HeadlessServer {
                 let Some(client) = self.clients.get_mut(&client_id) else {
                     continue;
                 };
+                if client.shell_usage_revision != Some(self.app.state.usage_revision) {
+                    let framed = crate::protocol::endpoint::usage_message(
+                        &self.client_shell_boot_id,
+                        self.app.state.usage_revision,
+                        &self.app.state.usage,
+                    )
+                    .map_err(std::io::Error::other)
+                    .and_then(|message| {
+                        Self::frame_server_message(&message).map_err(std::io::Error::other)
+                    });
+                    let sent = framed.ok().is_some_and(|framed| {
+                        client
+                            .writer
+                            .as_ref()
+                            .is_some_and(|writer| writer.control.send(framed).is_ok())
+                    });
+                    if !sent {
+                        broken_clients.push(client_id);
+                        continue;
+                    }
+                    client.shell_usage_revision = Some(self.app.state.usage_revision);
+                }
                 let (mut candidate, mut completions) = client_shell_snapshot(
                     &self.app,
                     &self.client_shell_boot_id,

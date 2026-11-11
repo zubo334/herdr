@@ -31,6 +31,9 @@ pub(crate) use shutdown::monitor_host_shutdown;
 mod power;
 pub(crate) use power::monitor_host_power;
 
+mod usage;
+pub(crate) use usage::read_usage_secure_store;
+
 #[cfg(test)]
 mod config_file_tests;
 

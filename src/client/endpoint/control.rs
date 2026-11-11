@@ -10,6 +10,7 @@ pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
+    Usage(crate::protocol::endpoint::EndpointUsageProjection),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     Ignored,
 }
@@ -25,6 +26,15 @@ pub(crate) fn decode_endpoint_control(
         return Ok(serde_json::from_str(data)
             .map(EndpointControlMessage::AgentCompletions)
             .unwrap_or(EndpointControlMessage::Ignored));
+    }
+    if kind == crate::protocol::endpoint::USAGE_KIND {
+        return Ok(
+            serde_json::from_str::<crate::protocol::endpoint::EndpointUsageProjection>(data)
+                .ok()
+                .filter(|projection| projection.usage.validate())
+                .map(EndpointControlMessage::Usage)
+                .unwrap_or(EndpointControlMessage::Ignored),
+        );
     }
     if kind == crate::protocol::endpoint::AGENT_VIEW_PROJECTION_KIND {
         let Ok(projection): Result<crate::protocol::endpoint::EndpointAgentViewProjection, _> =

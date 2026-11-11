@@ -2008,6 +2008,18 @@ impl HeadlessServer {
                     }
                 };
                 connection.shell_location = Some(location);
+                let usage_message = match crate::protocol::endpoint::usage_message(
+                    &self.client_shell_boot_id,
+                    self.app.state.usage_revision,
+                    &self.app.state.usage,
+                ) {
+                    Ok(message) => message,
+                    Err(error) => {
+                        warn!(client_id, %error, "could not encode account usage");
+                        return false;
+                    }
+                };
+                connection.shell_usage_revision = Some(self.app.state.usage_revision);
                 connection.shell_snapshot = Some(seed_snapshot);
                 connection.shell_agent_completions = Some(completion_projection);
                 connection.shell_agent_view = agent_view;
@@ -2019,6 +2031,7 @@ impl HeadlessServer {
                     self.send_to_client(client_id, message);
                 }
                 self.send_to_client(client_id, completion_message);
+                self.send_to_client(client_id, usage_message);
                 self.send_to_client(client_id, snapshot_message);
                 if surface_active {
                     self.foreground_client_id = Some(client_id);
@@ -3366,6 +3379,7 @@ impl HeadlessServer {
         }
 
         changed |= self.app.handle_tab_bar_status_tasks(now);
+        self.app.start_usage_refresh_if_due(now);
 
         if geometry_dirty {
             self.app.pending_agent_resume_deadline = None;

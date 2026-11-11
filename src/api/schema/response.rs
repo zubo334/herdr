@@ -278,6 +278,9 @@ pub enum ResponseResult {
         projection_revision: u64,
     },
     Ok {},
+    Usage {
+        usage: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

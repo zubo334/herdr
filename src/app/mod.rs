@@ -27,6 +27,7 @@ mod tab_bar_status;
 mod terminal_targets;
 mod terminal_titles;
 mod theme_sync;
+pub(crate) mod usage;
 mod window_title;
 mod worktrees;
 
@@ -75,6 +76,7 @@ pub(crate) struct AppPolicy {
     pub(crate) persist_session: bool,
     pub(crate) persist_plugin_registry: bool,
     pub(crate) background_updates: bool,
+    pub(crate) usage_collection: bool,
 }
 
 impl AppPolicy {
@@ -83,6 +85,7 @@ impl AppPolicy {
         persist_session: true,
         persist_plugin_registry: true,
         background_updates: true,
+        usage_collection: true,
     };
 
     #[cfg(test)]
@@ -91,6 +94,7 @@ impl AppPolicy {
         persist_session: false,
         persist_plugin_registry: false,
         background_updates: false,
+        usage_collection: false,
     };
 
     #[cfg(unix)]
@@ -99,11 +103,13 @@ impl AppPolicy {
         persist_session: true,
         persist_plugin_registry: true,
         background_updates: true,
+        usage_collection: true,
     };
 }
 
 pub struct App {
     pub state: AppState,
+    pub(crate) usage_runtime: usage::UsageRuntime,
     pub(crate) pixel_mouse_available: bool,
     pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
     pub event_tx: mpsc::Sender<AppEvent>,
@@ -531,6 +537,8 @@ impl App {
             headless_size: config.headless_size(),
             agent_panel_sort,
             agent_view_override: None,
+            usage: Arc::new(herdr_usage::UsageSnapshot::default()),
+            usage_revision: 0,
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
             next_agent_state_change_seq: 0,
@@ -622,6 +630,7 @@ impl App {
             toast_deadline: None,
             last_api_notification_at: None,
             state,
+            usage_runtime: usage::UsageRuntime::new(policy.usage_collection),
             pixel_mouse_available: false,
             terminal_runtimes: restored_terminal_runtimes,
             event_tx,

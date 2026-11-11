@@ -1,47 +1,46 @@
 # Fork 機能要件
 
-`zubo334/herdr` fork 固有の機能を管理するドキュメント。
-upstream 同期時にはこれらを必ず維持すること。upstream のリファクタで
-統合箇所が壊れた場合、新アーキテクチャに合わせて再実装してから
-同期完了とする。
+zubo334/herdr fork 固有の機能を管理する。
+upstream 同期時はここに示す機能を維持し、統合箇所が変わった場合は新しい構成に合わせて移植する。
 
-## 1. Usage Column（TUI 使用量カラム）
+## 1. Account Usage カラム
 
-画面右側に表示するプラットフォーム別 API トークン使用量パネル。
+右側の Usage カラムで Codex、Claude Code、Z.AI のアカウント使用量を表示する。
+サーバーが Rust プロバイダーで使用量を取得し、既存の account-usage.json を更新する。
+描画時はサーバーが保持するスナップショットを読み、ファイル読み込みや API 呼び出しを行わない。
 
-- **データ経路:** usage-monitor プラグイン（サーバー側）が
-  `$HERDR_PLUGIN_STATE_DIR/account-usage.json` に書き込み →
-  サーバーが読み取って `ClientShellSnapshot.plugin_usage` に載せる →
-  クライアントが描画。SSH 越しでも動作する。
-- **開閉操作:** カラムのタイトルクリックで折り畳み、右端の
-  1文字幅トグルストリップをクリックで展開。状態はクライアントの
-  chrome preferences に永続化（`usage_column_collapsed`）。
-- **表示内容:** プラットフォーム名、5時間/週間/fable 使用量バー
-  （緑 < 50% < 黄 < 80% < 赤）、リセットクレジット、
-  最終更新タイムスタンプ（UTC → ローカル変換）。
+- 旧クライアントには ClientShellSnapshot.plugin_usage で従来の項目を送る。
+- 新しいクライアントには任意の JSON メッセージ endpoint.usage.v1 で追加情報を送る。
+- 接続先、接続世代、サーバーの起動識別子を照合し、SSH の接続先を切り替えてもデータを混在させない。
+- 使用率、小数値、モデル別上限、リセット時刻、プラン、クレジット、取得エラーを表示する。
+- 取得に失敗した場合は同じアカウントの直前の値を保持し、取得成功時刻と古い値であることを示す。
+- カラムの見出しで折り畳み、タブバーの Usage ボタンで展開する。
+- 開閉状態はクライアントの chrome preferences に保存し、初期状態は折り畳む。
 
-### 関連ファイル
+既存のバイナリメッセージの構造は変更しない。
+使用量の共有状態は JSON API の usage.get でも取得できる。
 
-| レイヤー | ファイル |
-|----------|----------|
-| プロトコル | `src/protocol/wire.rs`（`PluginUsageEntry`, `ClientShellSnapshot.plugin_usage`） |
-| サーバー | `src/server/client_shell.rs`（`load_plugin_usage`） |
-| クライアント状態 | `src/client/shell/state.rs`（`ClientShellLayout.usage_column/usage_toggle`, `ShellHitMap.usage_column_title/usage_toggle_button`, `ClientShellState.usage_column_collapsed`） |
-| クライアントレイアウト | `src/client/shell/config.rs`（`layout()` の `usage_column_collapsed` 引数） |
-| クライアント描画 | `src/client/shell/render.rs`（`render_usage_column`, `render_usage_toggle`） |
-| クライアント入力 | `src/client/shell/mouse.rs`（トグルクリックハンドラ） |
-| 永続化 | `src/client/shell/preferences.rs`（`usage_column_collapsed`） |
+## 2. Rust による使用量取得
 
-## 2. Usage Monitor プラグイン
+CodexBar のプロバイダー抽象と直接取得処理を crates/usage-core に移植する。
+参照元は steipete/CodexBar のコミット 7447bc77c2497323d9c41e40164ce705533493c8 である。
+MIT の著作権表示とライセンス全文を同クレートに保持する。
 
-`plugins/usage-monitor/` に同梱。
+| プロバイダー | 認証情報 | 取得方法 |
+|---|---|---|
+| Codex | 既存の Codex OAuth 認証ファイル | ChatGPT の使用量 API |
+| Claude Code | 既存の OAuth 認証ファイル、または既定の macOS Keychain | Anthropic の使用量 API |
+| Z.AI | API キー | Global または BigModel China の上限 API |
 
-- `usage-poller.js` — 起動時プロセス。エージェントの使用量を
-  `/usage` および `/status` コマンド経由で 60秒間隔でポーリング。
-- `on-status-changed.js` — `pane.agent_status_changed` イベントハンドラ。
-  ステータス変化時に即座に使用量ポーリングを実行。
-- `dashboard.js` — ポップアップ TUI ダッシュボード（バー表示）。
-- `show-usage.js` — プラグインアクションのエントリポイント。
+認証情報は読み取り専用とし、Codex と Claude の CLI が管理する更新トークンを使用量取得のために交換しない。
+期限切れの場合は CLI 側でログインを更新する。
+取得とキャッシュ更新はペインの状態変化から独立して実行する。
+
+単一の herdr バイナリから usage fetch、usage get、usage dashboard を使用できる。
+plugins/usage-monitor はポップアップの起動だけを担当し、Node.js を必要としない。
+裏のチャットペイン、スラッシュコマンドの解析、JSONL のトークン解析、context_usage の報告処理は廃止する。
+
+設定、CLI、JSON の詳細は [Usage Monitor の説明](plugins/usage-monitor/README.md) を参照する。
 
 ## 3. Fork リリースワークフロー
 

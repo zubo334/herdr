@@ -29,6 +29,7 @@ enum RuntimeExitAction {
 impl App {
     pub(crate) fn handle_internal_event_with_render_impact(&mut self, ev: AppEvent) -> bool {
         match ev {
+            AppEvent::UsageRefreshed(update) => self.handle_usage_refreshed(*update),
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
@@ -111,6 +112,11 @@ impl App {
             &ev,
             AppEvent::TerminalBell { .. } | AppEvent::ClipboardWrite { .. }
         ) {
+            return Vec::new();
+        }
+
+        if let AppEvent::UsageRefreshed(update) = ev {
+            self.handle_usage_refreshed(*update);
             return Vec::new();
         }
 
@@ -939,6 +945,12 @@ impl App {
         };
 
         let response = match request.method {
+            Method::UsageGet(_) => SuccessResponse {
+                id: request.id,
+                result: ResponseResult::Usage {
+                    usage: serde_json::to_value(&*self.state.usage).unwrap_or_default(),
+                },
+            },
             Method::ServerStop(_) => {
                 self.state.should_quit = true;
                 SuccessResponse {

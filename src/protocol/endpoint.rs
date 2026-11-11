@@ -31,6 +31,31 @@ pub const AGENT_VIEW_PROJECTION_CAPABILITY: &str = "agent_view_projection";
 pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
 pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
 pub const AGENT_COMPLETIONS_KIND: &str = "endpoint.agent-completions.v1";
+pub const USAGE_CAPABILITY: &str = "account_usage";
+pub const USAGE_KIND: &str = "endpoint.usage.v1";
+
+/// Optional JSON-only extension. Its revision tracks usage independently of pane snapshots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EndpointUsageProjection {
+    pub boot_id: String,
+    pub revision: u64,
+    pub usage: herdr_usage::UsageSnapshot,
+}
+
+pub fn usage_message(
+    boot_id: &str,
+    revision: u64,
+    usage: &herdr_usage::UsageSnapshot,
+) -> serde_json::Result<ServerMessage> {
+    Ok(ServerMessage::EndpointControl {
+        kind: USAGE_KIND.into(),
+        data: serde_json::to_string(&EndpointUsageProjection {
+            boot_id: boot_id.into(),
+            revision,
+            usage: usage.clone(),
+        })?,
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointAgentCompletions {
@@ -174,6 +199,7 @@ impl EndpointServerWelcome {
                 HEALTH_CHECK_CAPABILITY.into(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.into(),
                 AGENT_COMPLETIONS_CAPABILITY.into(),
+                USAGE_CAPABILITY.into(),
             ],
             error: None,
         }
@@ -386,6 +412,7 @@ mod tests {
                 HEALTH_CHECK_CAPABILITY.to_string(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
                 AGENT_COMPLETIONS_CAPABILITY.to_string(),
+                USAGE_CAPABILITY.to_string(),
             ]
         );
     }

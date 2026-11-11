@@ -76,6 +76,8 @@ pub(crate) struct WorktreeReadData {
 /// An event from a background task to the main loop.
 #[derive(Debug)]
 pub enum AppEvent {
+    /// Account quota collection completed independently of pane activity.
+    UsageRefreshed(Box<crate::usage::Refresh>),
     /// A pane's child process exited.
     PaneDied {
         pane_id: PaneId,
