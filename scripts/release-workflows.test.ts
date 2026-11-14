@@ -33,11 +33,14 @@ describe("fork workflow boundaries", () => {
     const check = build.steps.find((step: any) => step.name === "Verify native binary version");
     expect(check.env.EXPECTED_VERSION).toBe("${{ needs.metadata.outputs.tag }}");
     expect(check.run).toContain('test "$ACTUAL" = "herdr $EXPECTED_VERSION"');
-    const manifest = publish.steps.find((step: any) => step.name === "Generate preview.json");
-    for (const key of ["build_id", "commit", "built_at", "base_version", "protocol", "endpoint_generation"]) {
-      expect(manifest.run).toContain("${{ needs.metadata.outputs." + key + " }}");
-    }
-    expect(manifest.run).not.toContain("date -u");
+    const metadataExport = metadata.steps.find((step: any) => step.id === "meta");
+    expect(metadataExport.run).toContain("--json-output fork-metadata.json");
+    const manifest = publish.steps.find((step: any) => step.name === "Generate fork distribution manifests");
+    expect(manifest.run).toContain("--metadata fork-metadata/fork-metadata.json");
+    expect(manifest.run).toContain("--previous previous-release/preview.json");
+    expect(publish.steps.find((step: any) => step.name === "Create release").with.files).toContain("distribution/install.cmd");
+    expect(fork.jobs.verify.needs).toContain("release");
+    expect(fork.jobs.verify.steps.at(-1).run).toContain("scripts/fork_release_smoke.py");
     const tag = publish.steps.find((step: any) => step.name === "Verify or create immutable release tag");
     expect(tag.run).toContain('test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$COMMIT"');
   });

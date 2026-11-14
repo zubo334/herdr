@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -66,14 +67,16 @@ class ForkReleaseMetadataTests(unittest.TestCase):
     def test_cli_exports_the_same_metadata_for_github_actions(self):
         script = Path(__file__).with_name("fork_release_metadata.py").resolve()
         output = self.root / "github-output"
+        artifact = self.root / "metadata.json"
         version = "0.9.5-preview.2026-11-11-086fa74f"
         subprocess.check_call(
-            [sys.executable, str(script), "--github-output", str(output)],
+            [sys.executable, str(script), "--github-output", str(output), "--json-output", str(artifact)],
             cwd=self.root, env=dict(os.environ, FORK_RELEASE_VERSION=version,
                                    GITHUB_REF_NAME="master"),
         )
         exported = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
         self.assertEqual(exported, metadata(self.root, version, "master"))
+        self.assertEqual(json.loads(artifact.read_text(encoding="utf-8")), exported)
 
 
 if __name__ == "__main__":

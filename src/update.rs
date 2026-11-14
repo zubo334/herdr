@@ -1,6 +1,6 @@
 //! Self-update mechanism.
 //!
-//! Checks the hosted herdr.dev update manifest for newer versions.
+//! Checks the fork distribution manifest for available builds.
 //! Manual `herdr update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
@@ -22,8 +22,6 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::traits::Stream as _;
 use serde::{Deserialize, Deserializer};
 
-const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
 const HERDR_UPDATE_COMMAND: &str = "herdr update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
@@ -326,18 +324,12 @@ impl ReleaseInfo {
 }
 
 fn fetch_update_manifest() -> Result<UpdateManifest, String> {
-    let url = env::var("HERDR_UPDATE_MANIFEST_URL")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| STABLE_UPDATE_MANIFEST_URL.to_string());
+    let url = crate::distribution::install_manifest_url();
     fetch_json_manifest(&url)
 }
 
 fn fetch_preview_manifest() -> Result<PreviewManifest, String> {
-    let url = env::var("HERDR_PREVIEW_MANIFEST_URL")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| PREVIEW_UPDATE_MANIFEST_URL.to_string());
+    let url = crate::distribution::preview_manifest_url();
     fetch_json_manifest(&url)
 }
 
@@ -478,6 +470,11 @@ fn release_info_for_installed_preview(
     if build_id.is_empty() {
         return Err("preview manifest build_id is empty".into());
     }
+    if installed_build_id.is_some_and(|id| id.starts_with("fork-v"))
+        && !build_id.starts_with("fork-v")
+    {
+        return Err("Refusing to replace a fork build with an upstream preview; use the fork distribution manifest.".into());
+    }
     if installed_is_preview
         && installed_build_id.is_some_and(|current| current == build_id)
         && installed_commit.is_none_or(|current| current == manifest.commit)
@@ -551,6 +548,9 @@ fn first_windows_stable_is_pending(
 
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
     let channel = UpdateChannel::configured();
+    if let Some(reason) = crate::distribution::channel_rejection(channel.as_str()) {
+        return Err(reason.into());
+    }
     if channel == UpdateChannel::Preview {
         return release_info_from_preview_manifest(&fetch_preview_manifest()?);
     }
@@ -3973,6 +3973,26 @@ mod tests {
                 .expect("a distinct or unidentified build still needs the update");
             assert_eq!(release.label(), tag);
         }
+    }
+
+    #[test]
+    fn fork_binary_refuses_upstream_preview_even_when_feed_is_overridden() {
+        let manifest: PreviewManifest = serde_json::from_value(serde_json::json!({
+            "channel":"preview", "base_version":"0.9.4",
+            "build_id":"2026-10-14-fbd2ae23927f",
+            "commit":"fbd2ae23927fe4923752bdb2db29661917fb05d7",
+            "built_at":"2026-10-14T00:00:00Z", "protocol":22,
+            "notes":"upstream", "assets":{}
+        }))
+        .unwrap();
+        let error = release_info_for_installed_preview(
+            &manifest,
+            true,
+            Some("fork-v0.9.5-preview.2026-11-11-162dd3cb"),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("Refusing to replace a fork build"));
     }
 
     #[test]

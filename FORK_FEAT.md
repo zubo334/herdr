@@ -64,3 +64,30 @@ fork の push と PR では、Linux/macOS/Windows のビルド・テストと Wi
 `HERDR_UPDATE_MANIFEST_URL` および `HERDR_PREVIEW_MANIFEST_URL` で
 upstream のハードコードされたマニフェスト URL を上書きし、
 fork 独自のアップデートチャネルを配信可能にする。
+
+## 5. fork 専用の導入・更新
+
+配布元は zubo334/herdr の GitHub Releases を既定値とし、環境変数なしで動作する。
+fork は全 OS で preview を使用する。旧設定の channel = "stable" は preview として読み込み、新たな channel set stable は拒否する。
+本家の preview マニフェストを指定しても、fork バイナリの自己更新では拒否する。
+
+Windows の復旧・新規導入は、fork の install.cmd または install.ps1 を使用する。
+
+```bat
+curl.exe -fL https://github.com/zubo334/herdr/releases/latest/download/install.cmd -o "%TEMP%\herdr-fork-install.cmd"
+call "%TEMP%\herdr-fork-install.cmd"
+```
+
+Linux / macOS:
+
+```sh
+curl -fsSL https://github.com/zubo334/herdr/releases/latest/download/install.sh | sh
+```
+
+preview.json は自己更新用の object assets を、latest.json は Unix installer 用の flat assets と SHA-256 を提供する。
+両方とも同じ preview ビルドを示し、latest.json を stable 配布には使用しない。
+installer 3本もリリースに添付する。既存の installer 用 HERDR_MANIFEST_URL と、CMD bootstrap 用 HERDR_INSTALLER_URL の明示 override は維持する。
+
+SSH の異 OS バイナリはクライアント自身のリリースタグから取得する。
+既存クライアントのため、公開済みマニフェストの builds 履歴も引き継ぐ。
+公開後の CI は Windows / Linux / macOS の実バイナリを取得し、更新 URL の環境変数を外して、既定設定と旧 stable 設定で更新不要になることを確認する。

@@ -22,6 +22,7 @@ mod client;
 mod config;
 mod copy_mode;
 mod detect;
+mod distribution;
 mod events;
 use ghostty_vt as ghostty;
 mod handoff_runtime;

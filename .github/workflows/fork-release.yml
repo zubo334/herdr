@@ -39,7 +39,12 @@ jobs:
         id: meta
         env:
           FORK_RELEASE_VERSION: ${{ inputs.version }}
-        run: python3 scripts/fork_release_metadata.py --github-output "$GITHUB_OUTPUT"
+        run: python3 scripts/fork_release_metadata.py --github-output "$GITHUB_OUTPUT" --json-output fork-metadata.json
+      - name: Upload immutable release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-metadata
+          path: fork-metadata.json
 
   build:
     needs: metadata
@@ -202,60 +207,13 @@ jobs:
             git push origin "$TAG"
           fi
 
-      - name: Generate latest.json
-        run: |
-          VERSION="${{ needs.metadata.outputs.version }}"
-          TAG="${{ needs.metadata.outputs.tag }}"
-          cat > latest.json << EOF
-          {
-            "version": "$VERSION",
-            "tag": "$TAG",
-            "assets": {
-              "herdr-linux-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-x86_64",
-              "herdr-linux-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-linux-aarch64",
-              "herdr-macos-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-x86_64",
-              "herdr-macos-aarch64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-macos-aarch64",
-              "herdr-windows-x86_64": "https://github.com/${{ github.repository }}/releases/download/$TAG/herdr-windows-x86_64.zip"
-            }
-          }
-          EOF
+      - name: Preserve published fork build history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo "$GITHUB_REPOSITORY" --pattern preview.json --dir previous-release
 
-      - name: Generate preview.json
-        run: |
-          TAG="${{ needs.metadata.outputs.tag }}"
-          BASE="${{ needs.metadata.outputs.base_version }}"
-          BUILD_ID="${{ needs.metadata.outputs.build_id }}"
-          COMMIT="${{ needs.metadata.outputs.commit }}"
-          BUILT_AT="${{ needs.metadata.outputs.built_at }}"
-          PROTOCOL="${{ needs.metadata.outputs.protocol }}"
-          ENDPOINT_GENERATION="${{ needs.metadata.outputs.endpoint_generation }}"
-          REPO="${{ github.repository }}"
-          SHA_LINUX_X86=$(sha256sum herdr-linux-x86_64/herdr-linux-x86_64 | cut -d' ' -f1)
-          SHA_LINUX_ARM=$(sha256sum herdr-linux-aarch64/herdr-linux-aarch64 | cut -d' ' -f1)
-          SHA_MACOS_X86=$(sha256sum herdr-macos-x86_64/herdr-macos-x86_64 | cut -d' ' -f1)
-          SHA_MACOS_ARM=$(sha256sum herdr-macos-aarch64/herdr-macos-aarch64 | cut -d' ' -f1)
-          SHA_WINDOWS=$(sha256sum herdr-windows-x86_64.zip/herdr-windows-x86_64.zip | cut -d' ' -f1)
-          cat > preview.json << EOFPREVIEW
-          {
-            "schema_version": 1,
-            "channel": "preview",
-            "base_version": "$BASE",
-            "build_id": "$BUILD_ID",
-            "commit": "$COMMIT",
-            "built_at": "$BUILT_AT",
-            "protocol": $PROTOCOL,
-            "endpoint_generation": $ENDPOINT_GENERATION,
-            "notes": "Fork release $TAG",
-            "builds": {},
-            "assets": {
-              "linux-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-x86_64", "sha256": "$SHA_LINUX_X86" },
-              "linux-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-linux-aarch64", "sha256": "$SHA_LINUX_ARM" },
-              "macos-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-x86_64", "sha256": "$SHA_MACOS_X86" },
-              "macos-aarch64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-macos-aarch64", "sha256": "$SHA_MACOS_ARM" },
-              "windows-x86_64": { "url": "https://github.com/$REPO/releases/download/$TAG/herdr-windows-x86_64.zip", "sha256": "$SHA_WINDOWS" }
-            }
-          }
-          EOFPREVIEW
+      - name: Generate fork distribution manifests
+        run: python3 scripts/fork_release_manifests.py --metadata fork-metadata/fork-metadata.json --repository "$GITHUB_REPOSITORY" --previous previous-release/preview.json
 
       - name: Generate release notes
         run: |
@@ -277,4 +235,36 @@ jobs:
             herdr-windows-x86_64.zip/herdr-windows-x86_64.zip
             latest.json
             preview.json
+            distribution/install.sh
+            distribution/install.ps1
+            distribution/install.cmd
           body_path: RELEASE_NOTES.md
+
+  verify:
+    needs: [metadata, release]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-aarch64
+          - os: windows-latest
+            target: windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify published binary without manifest overrides
+        env:
+          PYTHONUTF8: '1'
+          FORK_TAG: ${{ needs.metadata.outputs.tag }}
+          FORK_COMMIT: ${{ needs.metadata.outputs.commit }}
+          FORK_TARGET: ${{ matrix.target }}
+        shell: bash
+        run: python scripts/fork_release_smoke.py --tag "$FORK_TAG" --commit "$FORK_COMMIT" --target "$FORK_TARGET"

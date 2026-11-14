@@ -2,14 +2,19 @@
 set -eu
 
 BIN="herdr"
-MANIFEST_URL="https://herdr.dev/latest.json"
+MANIFEST_URL="${HERDR_MANIFEST_URL:-https://github.com/zubo334/herdr/releases/latest/download/latest.json}"
+CHANNEL="${HERDR_CHANNEL:-preview}"
+if [ "$CHANNEL" != "preview" ] && [ -z "${HERDR_MANIFEST_URL:-}" ]; then
+    printf '%s\n' 'This fork distributes preview releases only. Use HERDR_CHANNEL=preview.' >&2
+    exit 1
+fi
 INSTALL_DIR="${HERDR_INSTALL_DIR:-$HOME/.local/bin}"
 
 main() {
     echo ""
     echo "      ,ww"
     echo "     wWWWWWWW_)  herdr installer"
-    echo "     \`WWWWWW'    herdr.dev"
+    echo "     \`WWWWWW'    zubo334/herdr fork"
     echo "      II  II"
     echo ""
 
@@ -88,7 +93,7 @@ main() {
     fi
 
     if [ -n "$VERSION" ]; then
-        log "downloading v${VERSION}..."
+        log "downloading ${VERSION}..."
     else
         log "downloading latest release..."
     fi

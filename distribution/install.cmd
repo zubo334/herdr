@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "INSTALLER_URL=https://herdr.dev/install.ps1"
+set "INSTALLER_URL=https://github.com/zubo334/herdr/releases/latest/download/install.ps1"
 set "CURL_PROTOCOL=--proto =https --tlsv1.2"
 if defined HERDR_INSTALLER_URL (
     set "INSTALLER_URL=%HERDR_INSTALLER_URL%"
@@ -15,7 +15,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%INSTALLER_PATH%" %*
+rem Let Windows PowerShell compute its own module paths when called from PowerShell 7.
+set "PSModulePath="
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%INSTALLER_PATH%" %*
 set "INSTALLER_EXIT=%ERRORLEVEL%"
 del /f /q "%INSTALLER_PATH%" >nul 2>&1
 exit /b %INSTALLER_EXIT%

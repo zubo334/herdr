@@ -51,6 +51,7 @@ esac
             "curl",
             """#!/bin/sh
 : > "$FAKE_CURL_MARKER"
+printf '%s\\n' "$@" >> "$FAKE_CURL_LOG"
 out=""
 previous=""
 for argument in "$@"; do
@@ -134,6 +135,9 @@ exec {sha256sum} "$@"
             "FAKE_MANIFEST": str(manifest),
             "FAKE_PAYLOAD": str(self.payload),
             "FAKE_CURL_MARKER": str(self.root / "curl-called"),
+            "FAKE_CURL_LOG": str(self.root / "curl-urls"),
+            "HERDR_CHANNEL": "preview",
+            "HERDR_MANIFEST_URL": "",
             "HERDR_INSTALL_DIR": str(self.install_dir),
             **(extra_env or {}),
         }
@@ -156,6 +160,40 @@ exec {sha256sum} "$@"
 
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((self.install_dir / "herdr").read_bytes(), self.payload.read_bytes())
+
+    def test_fork_url_is_default(self) -> None:
+        result = self._run_installer(self.expected_sha256)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        urls = (self.root / "curl-urls").read_text()
+        self.assertIn("https://github.com/zubo334/herdr/releases/latest/download/latest.json", urls)
+
+    def test_explicit_manifest_override_is_preserved(self) -> None:
+        result = self._run_installer(self.expected_sha256,
+                                     extra_env={"HERDR_MANIFEST_URL": "http://127.0.0.1/custom.json"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("http://127.0.0.1/custom.json", (self.root / "curl-urls").read_text())
+
+    def test_stable_without_explicit_custom_manifest_is_rejected(self) -> None:
+        result = self._run_installer(self.expected_sha256, extra_env={"HERDR_CHANNEL": "stable"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "curl-called").exists())
+
+    def test_generated_fork_installer_feed_installs_the_same_verified_binary(self) -> None:
+        from scripts.test_fork_release_manifests import fixture
+        from scripts.fork_release_manifests import manifests
+        metadata, previous = fixture()
+        from scripts.fork_release_manifests import ASSETS
+        for filename in ASSETS.values():
+            directory = self.root / filename
+            directory.mkdir()
+            (directory / filename).write_bytes(self.payload.read_bytes())
+        _, feed = manifests(metadata, "zubo334/herdr", self.root, previous)
+        manifest = self.root / "fork-install.json"
+        manifest.write_text(json.dumps(feed, indent=2), encoding="utf-8")
+        result = self._run_installer(self.expected_sha256, extra_env={"FAKE_MANIFEST": str(manifest)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(metadata["tag"], result.stdout)
+        self.assertEqual((self.install_dir / "herdr").read_bytes(), self.payload.read_bytes())
 
     def test_android_is_rejected_before_replacing_existing_binary(self) -> None:
         self.install_dir.mkdir()

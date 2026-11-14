@@ -666,6 +666,20 @@ function Remove-OldReleases {
     }
 }
 
+function Resolve-HerdrManifestUrl {
+    param([string]$SelectedChannel, [string]$ExplicitUrl, [string]$PreviewOverride)
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitUrl)) {
+        return $ExplicitUrl
+    }
+    if ($SelectedChannel -ne "preview") {
+        throw "This fork distributes preview releases only. Use -Channel preview."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PreviewOverride)) {
+        return $PreviewOverride
+    }
+    return "https://github.com/zubo334/herdr/releases/latest/download/preview.json"
+}
+
 function Resolve-HerdrVersion {
     param(
         [object]$Manifest,
@@ -763,37 +777,23 @@ if ($useLocalPackage) {
     }
 } else {
     if (-not $channelWasExplicit) {
-        if (-not [string]::IsNullOrWhiteSpace($channelHerdr) -and $null -eq $existingHerdrKind) {
-            throw "Refusing to run unrecognized Herdr command at $channelHerdr to detect its update channel. Rerun with -Channel stable or -Channel preview."
-        }
-        if (-not [string]::IsNullOrWhiteSpace($channelHerdr)) {
-            $detectedChannel = [string](& $channelHerdr channel show 2>$null | Select-Object -Last 1)
-            $detectedChannel = $detectedChannel.Trim()
-            if ($LASTEXITCODE -ne 0 -or $detectedChannel -notin @("stable", "preview")) {
-                throw "Could not determine the existing Herdr update channel. Rerun with -Channel stable or -Channel preview."
-            }
-            $Channel = $detectedChannel
-            Write-Step "Preserving existing Herdr $Channel channel"
-        } elseif (-not [string]::IsNullOrWhiteSpace($ManifestUrl) -and $ManifestUrl -match "/preview\.json$") {
-            $Channel = "preview"
-        } else {
-            $Channel = "stable"
-        }
+        # Reinstalling this fork must recover from an upstream/stable install.
+        $Channel = "preview"
     }
-
-    if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
-        $ManifestUrl = if ($Channel -eq "preview") {
-            "https://herdr.dev/preview.json"
-        } else {
-            "https://herdr.dev/latest.json"
-        }
-    }
+    $ManifestUrl = Resolve-HerdrManifestUrl -SelectedChannel $Channel -ExplicitUrl $ManifestUrl -PreviewOverride $env:HERDR_PREVIEW_MANIFEST_URL
 
     Write-Step "Fetching Herdr $Channel manifest"
     $manifest = Get-RemoteManifest -Uri $ManifestUrl
     $manifestChannelProperty = $manifest.PSObject.Properties["channel"]
     if (-not $channelWasExplicit -and $null -ne $manifestChannelProperty -and [string]$manifestChannelProperty.Value -eq "preview") {
         $Channel = "preview"
+    }
+    if ($Channel -eq "stable" -and $null -ne $manifestChannelProperty -and [string]$manifestChannelProperty.Value -eq "preview") {
+        throw "A preview release cannot be installed as stable. Use -Channel preview."
+    }
+    if (-not $channelWasExplicit -and $null -eq $manifest.PSObject.Properties["base_version"] -and $null -ne $manifest.PSObject.Properties["version"]) {
+        # Explicit custom manifests can still describe a stable package.
+        $Channel = "stable"
     }
     $assetsProperty = $manifest.PSObject.Properties["assets"]
     $assetProperty = if ($null -eq $assetsProperty) {

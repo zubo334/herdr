@@ -183,6 +183,11 @@ fn channel_set(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
+    if let Some(reason) = crate::distribution::channel_rejection(channel) {
+        eprintln!("{reason}");
+        return Ok(1);
+    }
+
     if let Some(reason) = channel_set_rejection(
         channel,
         crate::update::preview_channel_rejection_for_current_install(),

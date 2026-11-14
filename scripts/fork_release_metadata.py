@@ -57,17 +57,20 @@ def metadata(root: Path, version: str, ref_name: str) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
     try:
         values = metadata(Path.cwd(), os.environ.get("FORK_RELEASE_VERSION", ""),
                           os.environ.get("GITHUB_REF_NAME", ""))
     except (ValueError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
+    if args.json_output:
+        args.json_output.write_text(json.dumps(values, indent=2) + "\n", encoding="utf-8")
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as output:
             for key, value in values.items():
                 output.write(f"{key}={value}\n")
-    else:
+    elif not args.json_output:
         print(json.dumps(values, indent=2))
     return 0
 

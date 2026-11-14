@@ -31,9 +31,20 @@ impl UpdateChannelConfig {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
 pub struct UpdateConfig {
+    #[serde(deserialize_with = "deserialize_fork_update_channel")]
     pub channel: UpdateChannelConfig,
     pub version_check: bool,
     pub manifest_check: bool,
+}
+
+fn deserialize_fork_update_channel<'de, D>(deserializer: D) -> Result<UpdateChannelConfig, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Existing upstream configurations can contain "stable". This fork has
+    // one feed, so preserve the setting as a legacy alias for fork preview.
+    UpdateChannelConfig::deserialize(deserializer)?;
+    Ok(UpdateChannelConfig::Preview)
 }
 
 impl Default for UpdateConfig {
@@ -47,15 +58,8 @@ impl Default for UpdateConfig {
 }
 
 fn default_update_channel() -> UpdateChannelConfig {
-    default_update_channel_for_build(cfg!(windows), crate::build_info::is_preview())
-}
-
-fn default_update_channel_for_build(is_windows: bool, is_preview: bool) -> UpdateChannelConfig {
-    if is_windows && is_preview {
-        UpdateChannelConfig::Preview
-    } else {
-        UpdateChannelConfig::Stable
-    }
+    // This fork publishes one preview feed on every supported platform.
+    UpdateChannelConfig::Preview
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -1355,19 +1359,11 @@ manifest_check = false
     }
 
     #[test]
-    fn update_channel_default_follows_windows_build_identity() {
-        assert_eq!(
-            default_update_channel_for_build(true, true),
-            UpdateChannelConfig::Preview
-        );
-        assert_eq!(
-            default_update_channel_for_build(true, false),
-            UpdateChannelConfig::Stable
-        );
-        assert_eq!(
-            default_update_channel_for_build(false, true),
-            UpdateChannelConfig::Stable
-        );
+    fn fork_update_channel_defaults_to_preview() {
+        assert_eq!(default_update_channel(), UpdateChannelConfig::Preview);
+        let legacy: Config = toml::from_str("[update]\nchannel = \"stable\"").unwrap();
+        assert_eq!(legacy.update.channel, UpdateChannelConfig::Preview);
+        assert!(toml::from_str::<Config>("[update]\nchannel = \"unknown\"").is_err());
     }
 
     #[test]

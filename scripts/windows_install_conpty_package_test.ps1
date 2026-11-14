@@ -40,7 +40,7 @@ $forbiddenPowerShellCommands = @(
 if ($forbiddenPowerShellCommands.Count -ne 0) {
     throw "installer uses forbidden PowerShell network execution: $($forbiddenPowerShellCommands -join ', ')"
 }
-foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry", "Resolve-HerdrVersion")) {
+foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry", "Resolve-HerdrVersion", "Resolve-HerdrManifestUrl")) {
     $definition = $installerAst.FindAll(
         {
             param($node)
@@ -54,6 +54,17 @@ foreach ($functionName in @("Prepend-PathEntry", "Update-PathRegistryEntry", "Re
     }
     Invoke-Expression $definition.Extent.Text
 }
+
+$forkManifestUrl = Resolve-HerdrManifestUrl -SelectedChannel "preview"
+if ($forkManifestUrl -cne "https://github.com/zubo334/herdr/releases/latest/download/preview.json") {
+    throw "Fork installer default points outside fork distribution"
+}
+if ((Resolve-HerdrManifestUrl -SelectedChannel "preview" -ExplicitUrl "http://localhost/explicit" -PreviewOverride "http://localhost/override") -cne "http://localhost/explicit") {
+    throw "Explicit installer manifest lost precedence"
+}
+$stableDefaultRejected = $false
+try { Resolve-HerdrManifestUrl -SelectedChannel "stable" | Out-Null } catch { $stableDefaultRejected = $true }
+if (-not $stableDefaultRejected) { throw "Fork installer silently selected a stable feed" }
 
 $forkTag = "fork-v0.9.5-preview.2026-11-11-086fa74f"
 foreach ($case in @(
@@ -218,7 +229,7 @@ try {
         Where-Object { $_.Name.StartsWith("0.0.1-") } |
         Select-Object -First 1
     if ($null -eq $freshStableRelease) {
-        throw "fresh installer did not default to the stable Windows package"
+        throw "explicit custom stable manifest did not install its Windows package"
     }
 
     $legacyStableManifest | Out-File -LiteralPath $stableManifestPath -Encoding utf8
@@ -598,21 +609,10 @@ exit /b 1
     $preserveBin = Join-Path $root "preserve-bin"
     $env:HERDR_HOME = $preserveHome
     $env:Path = "$fakeBin;$oldProcessPath"
-    $unrecognizedCommandRejected = $false
-    try {
-        & "$PSScriptRoot\..\distribution\install.ps1" `
-            -ManifestUrl "http://127.0.0.1:$port/candidate.json" `
-            -InstallDir $preserveBin `
-            -ExpectedBuildId "installer-test"
-    } catch {
-        if ($_.Exception.Message -notlike "Refusing to run unrecognized Herdr command*") {
-            throw
-        }
-        $unrecognizedCommandRejected = $true
-    }
-    if (-not $unrecognizedCommandRejected) {
-        throw "installer accepted implicit channel detection through an unrecognized command"
-    }
+    & "$PSScriptRoot\..\distribution\install.ps1" `
+        -ManifestUrl "http://127.0.0.1:$port/candidate.json" `
+        -InstallDir $preserveBin `
+        -ExpectedBuildId "installer-test"
     if (Test-Path -LiteralPath $fakeInvocationMarker) {
         throw "installer invoked an unrecognized command during implicit channel detection"
     }
